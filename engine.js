@@ -128,11 +128,18 @@ export function createEngine(allCards) {
    *   opts.p2Name        string
    *   opts.firstPlayer   1 | 2      winner of coin toss goes first (Pole Position)
    */
-  function createGame({ realmIds, p1Deck, p2Deck, p1Name = 'Player 1', p2Name = 'Player 2', firstPlayer = 1 }) {
-    // Validate decks
-    const deckErrors = validateDeck(p1Deck).concat(validateDeck(p2Deck));
+  function createGame({ realmIds, p1Deck, p2Deck, p1Name = 'Player 1', p2Name = 'Player 2', firstPlayer = 1, deferredP2 = false }) {
+    // Validate decks (P2's deck is validated later in completeP2Setup when deferred)
+    const deckErrors = deferredP2
+      ? validateDeck(p1Deck)
+      : validateDeck(p1Deck).concat(validateDeck(p2Deck));
     if (deckErrors.length) throw new Error('Invalid deck: ' + deckErrors.join('; '));
-    if (realmIds.length !== 4) throw new Error('Must supply exactly 4 realm IDs');
+    if (deferredP2) {
+      if (realmIds.length !== 2) throw new Error('Deferred setup: Player 1 supplies exactly 2 realm IDs');
+      p2Deck = [];
+    } else {
+      if (realmIds.length !== 4) throw new Error('Must supply exactly 4 realm IDs');
+    }
     realmIds.forEach(id => { if (!isRealm(id)) throw new Error(`Card ${id} is not a Realm`); });
 
     const makePlayer = (name, deck) => ({
@@ -151,12 +158,14 @@ export function createEngine(allCards) {
 
     const state = {
       version: 1,
+      gid: Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
       created: new Date().toISOString(),
       turn: 1,
       phase: 'draw',
       active_player: firstPlayer,
       winner: null,
-      realms: realmIds,
+      realms: deferredP2 ? [...realmIds, null, null] : realmIds,
+      pending_p2_setup: deferredP2,
       restrictions: { no_shifts_realm_idx: null },
       players: { 1: makePlayer(p1Name, p1Deck), 2: makePlayer(p2Name, p2Deck) },
       pending_effects: [],
@@ -166,6 +175,38 @@ export function createEngine(allCards) {
     // Each player draws 7 cards (re-draw if no vehicle — handled by caller using drawOpeningHand)
     appendLog(state, `Game started. ${p1Name} vs ${p2Name}. ${firstPlayer === 1 ? p1Name : p2Name} has Pole Position.`);
     return state;
+  }
+
+  /**
+   * completeP2Setup — Player 2 finishes a deferred setup (blind, before board display):
+   * supplies their deck, name, and Realms 3 & 4. Atomic: on any validation
+   * failure the incoming state is untouched and remains shareable/retryable.
+   */
+  function completeP2Setup(stateIn, { deck, realmIds, name }) {
+    if (!stateIn.pending_p2_setup) return fail(stateIn, 'Player 2 setup already complete');
+    const deckErrors = validateDeck(deck);
+    if (deckErrors.length)          return fail(stateIn, 'Invalid deck: ' + deckErrors.join('; '));
+    if (!Array.isArray(realmIds) || realmIds.length !== 2)
+                                    return fail(stateIn, 'Choose exactly 2 Realm cards');
+    for (const id of realmIds) {
+      if (!isRealm(id))             return fail(stateIn, `Card ${id} is not a Realm`);
+      if (stateIn.realms.includes(id)) return fail(stateIn, `Realm ${card(id)?.name || id} already chosen by Player 1`);
+    }
+    if (realmIds[0] === realmIds[1]) return fail(stateIn, 'Realms 3 and 4 must be different');
+
+    const s = clone(stateIn);
+    const p = s.players[2];
+    if (name) p.name = name;
+    p.draw_pile = shuffle([...deck]);
+    s.realms[2] = realmIds[0];
+    s.realms[3] = realmIds[1];
+    s.pending_p2_setup = false;
+    _applyRealmRestrictions(s);
+    appendLog(s, `${p.name} joined the race. Realms 3 & 4: ${card(realmIds[0]).name.replace(' REALM','')}, ${card(realmIds[1]).name.replace(' REALM','')}.`);
+
+    // Opening hand with vehicle mulligan (same rule as drawOpeningHand)
+    const r = drawOpeningHand(s, 2);
+    return r.ok ? ok(r.state) : r;
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -340,6 +381,8 @@ export function createEngine(allCards) {
 
   /** beginTurn — resets AP, flags, moves to draw phase */
   function beginTurn(stateIn) {
+    if (stateIn.pending_p2_setup && stateIn.active_player === 2)
+      return fail(stateIn, 'Player 2 must complete setup first (deck and Realms 3 & 4)');
     const s   = clone(stateIn);
     const pid = s.active_player;
     const p   = s.players[pid];
@@ -1464,7 +1507,10 @@ export function createEngine(allCards) {
   // In browser: import LZString from 'https://cdn.jsdelivr.net/npm/lz-string@1.5.0/+esm'
 
   function encodeState(state) {
-    const json = JSON.stringify(state);
+    // Logs are LOCAL-ONLY: each device keeps its own history (keyed by gid).
+    // Stripping them keeps share URLs compact regardless of game length.
+    const { log, ...shared } = state;
+    const json = JSON.stringify(shared);
     if (typeof LZString !== 'undefined') {
       return LZString.compressToEncodedURIComponent(json);
     }
@@ -1474,10 +1520,14 @@ export function createEngine(allCards) {
 
   function decodeState(encoded) {
     try {
+      let s;
       if (typeof LZString !== 'undefined') {
-        return JSON.parse(LZString.decompressFromEncodedURIComponent(encoded));
+        s = JSON.parse(LZString.decompressFromEncodedURIComponent(encoded));
+      } else {
+        s = JSON.parse(decodeURIComponent(atob(encoded)));
       }
-      return JSON.parse(decodeURIComponent(atob(encoded)));
+      if (s && !Array.isArray(s.log)) s.log = [];
+      return s;
     } catch {
       return null;
     }
@@ -1500,6 +1550,7 @@ export function createEngine(allCards) {
   return {
     // Setup
     createGame,
+    completeP2Setup,
     validateDeck,
     shuffle,
     drawOpeningHand,

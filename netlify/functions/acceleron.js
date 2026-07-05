@@ -7,15 +7,61 @@
  *
  * Uses claude-haiku for speed + cost efficiency (fractions of a cent per turn).
  * Falls back to heuristic if API call fails.
+ *
+ * ── Abuse hardening ─────────────────────────────────────────────────────
+ * This is a public endpoint that spends API credits, so it defends itself:
+ *   1. Origin allow-list (spoofable, but stops casual drive-by scripts)
+ *   2. Strict request-shape validation — only well-formed ARCCG game
+ *      payloads reach the model, so the endpoint is useless as a
+ *      general-purpose Claude proxy (the REAL defense)
+ *   3. Per-IP token bucket (best-effort: survives warm invocations)
+ *   4. Hard caps on payload size, move count, and max_tokens
+ * Final backstop: set a monthly spend limit on the key in the
+ * Anthropic console.
  */
 
+const ALLOWED_ORIGINS = ['https://arccg.netlify.app', 'http://localhost:8888'];
+
+// Best-effort per-IP rate limit (persists across warm invocations only)
+const BUCKETS = new Map();
+const RATE = { capacity: 10, refillMs: 6000 }; // ~10 burst, 1 req / 6s sustained
+function rateLimited(ip) {
+  const now = Date.now();
+  let b = BUCKETS.get(ip);
+  if (!b) { b = { tokens: RATE.capacity, last: now }; BUCKETS.set(ip, b); }
+  b.tokens = Math.min(RATE.capacity, b.tokens + (now - b.last) / RATE.refillMs);
+  b.last = now;
+  if (b.tokens < 1) return true;
+  b.tokens -= 1;
+  if (BUCKETS.size > 5000) BUCKETS.clear(); // memory guard
+  return false;
+}
+
+// The endpoint accepts ONLY payloads shaped exactly like ARCCG turn requests.
+function validPayload(p) {
+  if (!p || typeof p !== 'object') return false;
+  if (typeof p.boardSummary !== 'string' || p.boardSummary.length > 4000) return false;
+  if (!Array.isArray(p.legalMoves) || p.legalMoves.length > 60) return false;
+  for (const m of p.legalMoves) {
+    if (!m || typeof m !== 'object') return false;
+    if (typeof m.description !== 'string' || m.description.length > 200) return false;
+    if (m.apCost !== undefined && (typeof m.apCost !== 'number' || m.apCost < 0 || m.apCost > 9)) return false;
+  }
+  if (typeof p.apsRemaining !== 'number' || p.apsRemaining < 0 || p.apsRemaining > 12) return false;
+  if (p.difficulty !== 'easy' && p.difficulty !== 'hard') return false;
+  return true;
+}
+
 exports.handler = async (event) => {
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  const corsOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+
   // CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': corsOrigin,
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
       },
@@ -27,11 +73,34 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
+  // Origin gate (weak signal, first tripwire)
+  if (!ALLOWED_ORIGINS.includes(origin)) {
+    return { statusCode: 403, headers: corsHeaders(), body: 'Forbidden' };
+  }
+
+  // Rate limit
+  const ip = event.headers?.['x-nf-client-connection-ip']
+          || event.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+          || 'unknown';
+  if (rateLimited(ip)) {
+    return { statusCode: 429, headers: corsHeaders(), body: 'Slow down, racer.' };
+  }
+
+  // Payload size cap before parsing
+  if ((event.body || '').length > 20000) {
+    return { statusCode: 413, headers: corsHeaders(), body: 'Payload too large' };
+  }
+
   let payload;
   try {
     payload = JSON.parse(event.body);
   } catch (e) {
     return { statusCode: 400, body: 'Invalid JSON' };
+  }
+
+  // Shape gate: reject anything that is not a well-formed ARCCG turn request
+  if (!validPayload(payload)) {
+    return { statusCode: 400, headers: corsHeaders(), body: 'Invalid game payload' };
   }
 
   const { boardSummary, legalMoves, apsRemaining, difficulty, vehiclePhase } = payload;
@@ -192,6 +261,6 @@ const hardFlavour = () => HARD_LINES[Math.floor(Math.random() * HARD_LINES.lengt
 function corsHeaders() {
   return {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0],
   };
 }

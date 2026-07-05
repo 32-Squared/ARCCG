@@ -82,7 +82,25 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 #opp-finished{font-size:10px;color:var(--gold);margin-left:auto}
 #realm-track{flex:1;display:flex;gap:4px;padding:6px 4px;overflow-x:hidden;min-height:0}
 .realm-col{flex:1;display:flex;flex-direction:column;min-width:0;border:1px solid var(--border);
-  border-radius:3px;background:var(--bg1);overflow:hidden;transition:border-color .15s}
+  border-radius:3px;background:var(--bg1);overflow:hidden;transition:border-color .15s;position:relative}
+/* ── Card-art mode (toggleable) ─────────────────────────────────────── */
+.realm-art{position:absolute;inset:0;background-size:cover;background-position:center 20%;
+  opacity:.16;pointer-events:none;z-index:0}
+.realm-col>.realm-header,.realm-col>.realm-vehicles{position:relative;z-index:1}
+.hand-card{position:relative;overflow:hidden}
+.hand-card .hc-img{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  object-fit:cover;pointer-events:none;z-index:0}
+.hand-card .hc-img.rot{transform:translate(-50%,-50%) rotate(-90deg)}
+.hand-card.img-mode{min-width:56px}
+.hand-card.img-mode.hc-vehicle{min-width:106px;max-width:106px}
+.hand-card.img-mode .hc-ap{position:relative;z-index:1;background:rgba(0,0,0,.75);border-radius:2px}
+.vstack{position:relative;overflow:hidden}
+.vs-img{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-90deg);
+  object-fit:cover;opacity:.9;pointer-events:none;z-index:0}
+.vs-shade{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(6,8,10,.55) 0%,rgba(6,8,10,.35) 40%,rgba(6,8,10,.8) 100%)}
+.vstack>.vstack-name,.vstack>.spp-row,.vstack>.stack-equipped,.vstack>.token-row,.vstack>.terrain-bonus{position:relative;z-index:1}
+.vstack.img-mode .spp-box{background:rgba(0,0,0,.6)}
 .realm-header{flex-shrink:0;padding:5px 6px 4px;border-bottom:1px solid var(--border);background:var(--bg2)}
 .realm-num{font-size:9px;color:var(--text-faint);letter-spacing:1px;text-transform:uppercase;font-weight:600}
 .realm-name{font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;
@@ -321,7 +339,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 #card-image-overlay.hidden{display:none!important}
 #card-image-large{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;
   box-shadow:0 0 40px rgba(0,0,0,.8)}
-#card-image-large.landscape{transform:rotate(90deg);
+#card-image-large.landscape{transform:rotate(-90deg);
   max-width:90vh;max-height:90vw}
 
 /* ── Deck Builder ────────────────────────────────────────────────────── */
@@ -485,7 +503,9 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
     'rulebookNav','closeCardList','closeCardImage',
     'openCardImage','selectVStack','selectHandCard',
     'showCardDetail','showPrompt',
-    'saveCurrentDeck','loadCustomDeck','deleteCustomDeck','loadStarterDeck'
+    'saveCurrentDeck','loadCustomDeck','deleteCustomDeck','loadStarterDeck',
+    'quickRace','setupDeckSource','toggleRealmPick',
+    'p2SetTeam','p2DeckSource','p2SetupConfirm','openP2Setup','toggleImgMode'
   ];
   stubs.forEach(function(fn) {
     if (!window[fn]) window[fn] = _loading;
@@ -592,7 +612,8 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
     </div>
     <div id="team-locked-msg"></div>
     <div id="menu-options">
-      <button class="menu-opt-btn primary" id="btn-new-game" onclick="menuNewGame()">New Game</button>
+      <button class="menu-opt-btn primary" id="btn-quick-race" onclick="quickRace()">Quick Race</button>
+      <button class="menu-opt-btn" id="btn-new-game" onclick="menuNewGame()">Custom Race</button>
       <button class="menu-opt-btn" id="btn-edit-deck" onclick="menuEditDeck()">Edit Deck</button>
       <button class="menu-opt-btn" onclick="menuSave()">Save</button>
       <button class="menu-opt-btn" onclick="menuLoad()">Load</button>
@@ -677,6 +698,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
     <div id="turn-info"></div>
     <button class="tb-btn primary" id="btn-end-turn" onclick="endTurn()">End Turn</button>
     <button class="tb-btn" onclick="toggleLog()">Log</button>
+    <button class="tb-btn" onclick="toggleImgMode()" title="Toggle card art (faster on slow devices when off)">🎴</button>
     <button class="tb-btn" onclick="shareState()">📋 Share</button>
     <button class="tb-btn" onclick="openRulebook()">Rules</button>
     <button class="tb-btn" onclick="openMenu()">Menu</button>
@@ -727,6 +749,15 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
     <div class="modal-head"><div class="modal-title">New Race</div></div>
     <div class="modal-body" id="setup-body"></div>
     <div class="modal-foot" id="setup-foot"></div>
+  </div>
+</div>
+
+<!-- Player 2 deferred setup (blind: fully covers the board) -->
+<div class="modal-overlay hidden" id="p2setup-overlay" style="background:var(--bg0,#090909);z-index:1100">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-head"><div class="modal-title" id="p2setup-title">Player 2 \u2014 Join the Race</div></div>
+    <div class="modal-body" id="p2setup-body"></div>
+    <div class="modal-foot" id="p2setup-foot"></div>
   </div>
 </div>
 
@@ -792,8 +823,9 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
         <p>Each realm has one Escape Value your vehicle's matching stat must meet or beat. Equip Mods, Shifts and Accelechargers to boost totals.</p></div>
       <div class="help-section"><h3>Action Points</h3>
         <p>Start with <strong>3 APs</strong>. Having 2+ vehicles of the same team in play gives <strong>+1 AP per team</strong>.</p></div>
-      <div class="help-section"><h3>Async Multiplayer</h3>
-        <p>After your turn, tap <strong>Share</strong>. Your opponent opens that link and takes their turn. The full game state is in the URL.</p></div>
+      <div class="help-section"><h3>Async Multiplayer &amp; Saving</h3>
+        <p>After your turn, tap <strong>Share</strong>. Your opponent opens that link and takes their turn — <strong>the link IS the game</strong>: the entire game state is encoded in the URL, so there's no server, no account, and nothing to lose. Any share link re-opens the game exactly where it stood.</p>
+        <p>Your browser also keeps a local save automatically (one slot for PvP games, one for vs&nbsp;Acceleron), plus your own copy of the game log. Turns played on your opponent's device are marked in your log when the game comes back to you.</p></div>
       <div class="help-section"><h3>Controls</h3>
         <ul>
           <li>Tap a hand card to select, then tap a vehicle to act</li>
@@ -839,14 +871,33 @@ let CARDS, MANIFEST, engine;
 const STARTER_DECKS = {
   deck1: {
     name: 'Starter Deck 1',
-    ids:   [2,241,242,243,24,38,111,116,119,129,146,163,150,140,158,158,149,149,164,203,182,205,207,207,171,208,172,174,214,226,216,230,238,239,224,225,228,238,236],
+    ids:   [2,241,242,243,24,38,12,111,116,119,129,146,163,150,140,158,158,149,149,164,203,182,205,207,207,171,208,172,174,214,226,216,230,238,239,224,225,228,238,236],
     realms:[86,88]
   },
   deck2: {
     name: 'Starter Deck 2',
-    ids:   [107,112,119,129,133,133,140,142,159,164,165,167,167,171,172,174,183,183,190,194,200,208,224,225,228,233,235,237,238,239,244,245,246,46,58,67,215,238,236],
+    ids:   [107,112,119,129,133,133,140,142,159,164,165,167,167,171,172,174,183,183,190,194,200,208,224,225,228,233,235,237,238,239,244,245,246,46,58,67,56,215,238,236],
     realms:[81,102]
   }
+};
+
+// The canonical four starter Realms (Quick Race shuffles these)
+const STARTER_REALMS = [86, 88, 81, 102];
+
+// ── Preset team decks (40 cards each, engine-validated) ──────────────────
+const TEAM_DECKS = {
+  'Metal Maniacs': { name:'Metal Maniacs Team Deck',
+    ids:[2,5,7,9,10,12,15,17,19,20,242,243, 168,138,170,167,152,140,149,150,158,145,
+         238,238,216,216,228,212,220,221, 109,121, 196,193,171,180,194,205,178,191] },
+  'Teku Racers': { name:'Teku Racers Team Deck',
+    ids:[21,24,25,27,29,30,31,34,35,37,39,241, 136,133,135,146,146,144,142,142,163,140,
+         238,238,240,240,235,223,215,224, 122,120, 187,200,182,184,181,188,204,193] },
+  'Silencerz': { name:'Silencerz Team Deck',
+    ids:[41,42,43,44,46,51,53,54,56,57,59,244, 143,134,147,147,132,141,151,163,162,166,
+         238,238,230,230,214,219,226,213, 117,129, 179,185,175,204,209,186,195,210] },
+  'Racing Drones': { name:'Racing Drones Team Deck',
+    ids:[61,62,66,67,70,71,72,76,77,78,79,80, 137,138,170,155,145,165,165,152,149,153,
+         238,238,216,216,228,228,212,227, 109,128, 196,201,192,197,199,202,193,206] },
 };
 
 // \u2500\u2500 Custom deck storage (up to 4 named slots) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -921,6 +972,11 @@ function renderCustomDeckSlots(pid) {
 }
 
 async function boot() {
+  // PWA: register service worker (offline shell + card image caching)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
   MANIFEST = await fetch('./card_manifest.json').then(r => r.json());
   CARDS    = MANIFEST.cards;
   engine   = createEngine(CARDS);
@@ -938,18 +994,25 @@ async function boot() {
   const urlState = engine.loadStateFromURL();
   if (urlState) {
     window.G = urlState;
-    // Skip landing, go straight to game
+    setPerspectiveFromState(G);
+    // Skip landing, go straight to game (or P2 setup if pending)
     document.getElementById('landing-overlay').classList.add('hidden');
     document.getElementById('menu-overlay').classList.add('hidden');
+    if (checkP2SetupGate()) { initCardListFilters(); return; }
+    restoreLocalLog();
     renderAll();
     toast('Game loaded from link!');
   } else {
-    // Show landing
-    const saved = localStorage.getItem('acceleracers_save');
-    if (saved) {
+    // Show landing; offer resume from either save slot (PvP takes priority)
+    for (const key of ['arccg_save_pvp','arccg_save_pve']) {
+      const saved = localStorage.getItem(key);
+      if (!saved) continue;
       try {
-        window.G = JSON.parse(saved);
+        const slot = JSON.parse(saved);
+        window.G = slot.state;
+        window.GAME_MODE = slot.mode || 'pvp';
         document.getElementById('btn-return-game').style.display = '';
+        break;
       } catch(e) { window.G = null; }
     }
   }
@@ -968,8 +1031,30 @@ window.MY_PID   = 1;
 window.OPP_PID  = 2;
 window.selected = null;
 
+// ── Perspective ──────────────────────────────────────────────────────────
+// The device that CREATES a game is Player 1. A device that LOADS a shared
+// link takes the perspective of whoever must act: Player 2 during pending
+// setup, otherwise the active player.
+function setPerspective(pid) {
+  window.MY_PID  = pid;
+  window.OPP_PID = 3 - pid;
+}
+function setPerspectiveFromState(s) {
+  if (GAME_MODE === 'acceleron') { setPerspective(1); return; }
+  setPerspective(s.pending_p2_setup ? 2 : s.active_player);
+}
+
+// Returns true (and shows the blind P2 setup flow) when Player 2 must
+// complete deferred setup before the board may be displayed.
+function checkP2SetupGate() {
+  if (!G || !G.pending_p2_setup) return false;
+  if (G.active_player !== 2 && MY_PID !== 2) return false;
+  openP2Setup();
+  return true;
+}
+
 window.setup = {
-  step:0, p1Name:'Player 1', p2Name:'Player 2',
+  step:0, p1Name:'Player 1', firstPlayer:1,
   p1Deck: [...(STARTER_DECKS.deck1.ids)],
   p2Deck: [...(STARTER_DECKS.deck2.ids)],
   realmIds: [...STARTER_DECKS.deck1.realms.slice(0,2)],
@@ -1018,28 +1103,77 @@ window.selectTeam = function(slug, teamName) {
   document.getElementById('tile-' + slug)?.classList.add('selected');
   selectedTeam = { slug, teamName };
 
-  // Pre-populate deck with team vehicles (player still edits before starting)
-  const teamVehicles = (window.ALL_CARDS || []).filter(c =>
-    c.type === 'Vehicle' && c.team === teamName
-  ).map(c => c.id);
-  setup.p1Deck = [...teamVehicles];
-  toast(`${teamName} selected \u2014 edit your deck before starting`);
+  // Load the full 40-card team preset (player may still customise in setup)
+  setup.p1Deck = [...TEAM_DECKS[teamName].ids];
+  setup.p1DeckSource = 'team';
+  toast(`${teamName} selected \u2014 team deck loaded`);
 };
+
+function shuffledStarterRealms() {
+  const a=[...STARTER_REALMS];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+function defaultP1Deck() {
+  if (setup.p1Deck && setup.p1Deck.length) return [...setup.p1Deck];
+  if (selectedTeam) return [...TEAM_DECKS[selectedTeam.teamName].ids];
+  return [...STARTER_DECKS.deck1.ids];
+}
+function randomTeamDeck(excludeTeam) {
+  const teams = Object.keys(TEAM_DECKS).filter(t => t !== excludeTeam);
+  return TEAM_DECKS[teams[Math.floor(Math.random()*teams.length)]];
+}
 
 window.menuNewGame = function() {
   document.getElementById('menu-overlay').classList.add('hidden');
-  // Preserve custom decks if already set, otherwise use starters
+  const shuffled = shuffledStarterRealms();
   window.setup = {
-    step:0, p1Name:'Player 1', p2Name:'Player 2',
-    p1Deck: (setup.p1Deck && setup.p1Deck.length) ? [...setup.p1Deck] : [...STARTER_DECKS.deck1.ids],
-    p2Deck: (setup.p2Deck && setup.p2Deck.length) ? [...setup.p2Deck] : [...STARTER_DECKS.deck2.ids],
-    realmIds: setup.realmIds?.length === 4 ? [...setup.realmIds]
-              : [...STARTER_DECKS.deck1.realms.slice(0,1), ...STARTER_DECKS.deck2.realms.slice(0,1),
-                 86, 87],  // Ice, Junk, Ice, Wind as default 4-realm setup
+    step:0, p1Name:'Player 1',
+    p1Deck: defaultP1Deck(),
+    p1DeckSource: setup.p1DeckSource || (selectedTeam ? 'team' : 'starter'),
+    // PvP: P1 picks realms 1 & 2 (default: 2 shuffled starters). Acceleron: all 4.
+    realmIds: GAME_MODE === 'acceleron' ? shuffled : shuffled.slice(0,2),
     currentDeckPid:1
   };
   renderSetupStep();
   document.getElementById('setup-modal').classList.remove('hidden');
+};
+
+// One tap, all defaults: your team's preset deck, shuffled starter realms.
+window.quickRace = function() {
+  document.getElementById('menu-overlay').classList.add('hidden');
+  const shuffled = shuffledStarterRealms();
+  const deck = defaultP1Deck();
+  try {
+    if (GAME_MODE === 'acceleron') {
+      const ai = randomTeamDeck(selectedTeam?.teamName);
+      window.G = engine.createGame({
+        realmIds: shuffled,
+        p1Deck: engine.shuffle(deck),
+        p2Deck: engine.shuffle([...ai.ids]),
+        p1Name: setup.p1Name || 'Player 1',
+        p2Name: 'Acceleron',
+        firstPlayer: 1,
+      });
+      let r = engine.drawOpeningHand(G,1); if(r.ok) G=r.state;
+          r = engine.drawOpeningHand(G,2); if(r.ok) G=r.state;
+    } else {
+      window.G = engine.createGame({
+        realmIds: shuffled.slice(0,2),
+        p1Deck: engine.shuffle(deck),
+        p1Name: setup.p1Name || 'Player 1',
+        firstPlayer: 1,
+        deferredP2: true,
+      });
+      let r = engine.drawOpeningHand(G,1); if(r.ok) G=r.state;
+    }
+    setPerspective(1);
+    window.selected = null;
+    renderAll();
+    pushState();
+    toast('Race started!');
+    setTimeout(() => autoAdvanceTurn(), 300);
+  } catch(e) { toast('Error: '+e.message); }
 };
 
 window.menuEditDeck = function() {
@@ -1050,20 +1184,20 @@ window.menuEditDeck = function() {
 
 window.menuSave = function() {
   if (!G) { toast('No game in progress to save'); return; }
-  const existing = localStorage.getItem('acceleracers_save');
-  if (existing) {
-    if (!confirm('Overwrite existing save?')) return;
-  }
-  localStorage.setItem('acceleracers_save', JSON.stringify(G));
-  toast('Game saved!');
+  persistLocal();
+  toast(GAME_MODE === 'acceleron' ? 'Game saved (vs Acceleron slot)' : 'Game saved (PvP slot)');
 };
 
 window.menuLoad = function() {
-  const saved = localStorage.getItem('acceleracers_save');
-  if (!saved) { toast('No saved game found'); return; }
+  const key = saveSlotKey();
+  const saved = localStorage.getItem(key);
+  if (!saved) { toast(`No saved ${GAME_MODE==='acceleron'?'vs-Acceleron':'PvP'} game found`); return; }
   try {
-    window.G = JSON.parse(saved);
+    const slot = JSON.parse(saved);
+    window.G = slot.state;
+    setPerspectiveFromState(G);
     document.getElementById('menu-overlay').classList.add('hidden');
+    if (checkP2SetupGate()) return;
     renderAll();
     toast('Game loaded from save!');
   } catch(e) { toast('Save file corrupted'); }
@@ -1218,102 +1352,242 @@ window.closeCardImage = function() {
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 window.openNewGame = window.menuNewGame;
 
+// Shared deck-source chooser + realm picker (used by P1 setup and P2 setup)
+function deckSourceHTML(prefix, source, teamName) {
+  const opts = [
+    ['team',    teamName ? `${teamName} Team Deck` : 'Team Deck (pick a team first)'],
+    ['starter1','Starter Deck 1'],
+    ['starter2','Starter Deck 2'],
+    ['custom',  'Custom Build\u2026'],
+  ];
+  return `<div class="field"><label>Deck</label>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${opts.map(([v,l]) => `
+        <button class="tb-btn${source===v?' primary':''}" ${v==='team'&&!teamName?'disabled style="opacity:.4"':''}
+          onclick="${prefix}DeckSource('${v}')">${l}</button>`).join('')}
+    </div></div>`;
+}
+function resolveDeckSource(v, teamName) {
+  if (v === 'team')     return [...TEAM_DECKS[teamName].ids];
+  if (v === 'starter1') return [...STARTER_DECKS.deck1.ids];
+  if (v === 'starter2') return [...STARTER_DECKS.deck2.ids];
+  return null; // custom: opens deck builder
+}
+function realmPickerHTML(pickCount, chosen, excluded) {
+  const realms = CARDS.filter(c => c.type === 'Realm');
+  return realms.map(r => {
+    const sel = chosen.includes(r.id);
+    const exc = excluded.includes(r.id);
+    const esc = r.escape;
+    const escStr = [esc.speed>0?`S${esc.speed}`:'',esc.power>0?`P${esc.power}`:'',
+      esc.performance>0?`Pf${esc.performance}`:''].filter(Boolean).join(' ');
+    return `<div class="realm-pick-card${sel?' selected':''}" ${exc?'style="opacity:.35;pointer-events:none"':''}
+      onclick="toggleRealmPick(${r.id},${pickCount})">
+      <div class="rpn">${r.name.replace(' REALM','')}${exc?' \u00B7 P1':''}</div>
+      <div class="rpe">${escStr} \u00B7 ${(r.terrain||[]).join(', ')||'\u2013'}</div></div>`;
+  }).join('');
+}
+window.toggleRealmPick = function(id, pickCount) {
+  const arr = window._realmPickTarget;
+  const i = arr.indexOf(id);
+  if (i >= 0) arr.splice(i, 1);
+  else if (arr.length < pickCount) arr.push(id);
+  window._realmPickRerender();
+};
+
 function renderSetupStep() {
   const { step } = window.setup;
   const body = document.getElementById('setup-body');
   const foot = document.getElementById('setup-foot');
+  const acc  = GAME_MODE === 'acceleron';
 
   if (step === 0) {
     body.innerHTML = `
       <div class="field"><label>Your Name</label>
         <input id="s-p1name" value="${setup.p1Name}" oninput="setup.p1Name=this.value"></div>
-      <div class="field"><label>Opponent Name</label>
-        <input id="s-p2name" value="${setup.p2Name}" oninput="setup.p2Name=this.value"></div>
-      <div class="field"><label>Who goes first?</label>
-        <select id="s-first">
-          <option value="1">You (${setup.p1Name||'Player 1'})</option>
-          <option value="2">Opponent (${setup.p2Name||'Player 2'})</option>
-        </select>
-      </div>
+      ${acc ? '' : `<div class="field"><label>Who goes first?</label>
+        <select id="s-first" onchange="setup.firstPlayer=parseInt(this.value)">
+          <option value="1" ${setup.firstPlayer!==2?'selected':''}>You</option>
+          <option value="2" ${setup.firstPlayer===2?'selected':''}>Opponent</option>
+        </select></div>`}
       <p style="font-size:11px;color:var(--text-dim);margin-top:8px">
-        Next: build your deck, then opponent's deck, then choose 4 Realm cards.</p>`;
-    foot.innerHTML = `<button class="tb-btn primary" onclick="setupNext()">Build Your Deck \u2192</button>`;
+        ${acc ? 'Next: choose your deck, then all 4 Realms.'
+              : 'Next: choose your deck, then Realms 1 & 2. Your opponent names themselves and chooses their deck and Realms 3 & 4 when they join.'}</p>`;
+    foot.innerHTML = `<button class="tb-btn primary" onclick="setupNext()">Choose Deck \u2192</button>`;
   }
-  else if (step === 1 || step === 2) {
-    const pid = step === 1 ? 1 : 2;
-    setup.currentDeckPid = pid;
-    const name = pid === 1 ? setup.p1Name : setup.p2Name;
-    openDeckBuilder(pid, name);
+  else if (step === 1) {
+    const teamName = selectedTeam?.teamName || null;
+    body.innerHTML = deckSourceHTML('setup', setup.p1DeckSource, teamName) + `
+      <p style="font-size:11px;color:var(--text-dim);margin-top:8px">
+        Current deck: <strong>${setup.p1Deck.length}</strong> cards</p>`;
     foot.innerHTML = `
       <button class="tb-btn" onclick="setupPrev()">\u2190 Back</button>
-      <button class="tb-btn primary" onclick="setupNext()">
-        ${step === 1 ? "Opponent's Deck \u2192" : "Choose Realms \u2192"}
-      </button>`;
+      <button class="tb-btn primary" onclick="setupNext()">Choose Realms \u2192</button>`;
   }
-  else if (step === 3) {
-    const realms = CARDS.filter(c => c.type === 'Realm');
+  else if (step === 2) {
+    const n = acc ? 4 : 2;
+    window._realmPickTarget = setup.realmIds;
+    window._realmPickRerender = renderSetupStep;
     body.innerHTML = `
       <p style="font-size:11px;color:var(--text-dim);margin-bottom:12px">
-        Choose <strong>4 Realm cards</strong> (${setup.realmIds.length}/4 selected):</p>
-      <div id="realm-picker-grid"></div>`;
-    const grid = document.getElementById('realm-picker-grid');
-    realms.forEach(r => {
-      const sel = setup.realmIds.includes(r.id);
-      const esc = r.escape;
-      const escStr = [
-        esc.speed>0?`S${esc.speed}`:'',
-        esc.power>0?`P${esc.power}`:'',
-        esc.performance>0?`Pf${esc.performance}`:'',
-      ].filter(Boolean).join(' ');
-      const div = document.createElement('div');
-      div.className = 'realm-pick-card' + (sel ? ' selected' : '');
-      div.innerHTML = `<div class="rpn">${r.name.replace(' REALM','')}</div>
-        <div class="rpe">${escStr} \u00B7 ${(r.terrain||[]).join(', ')||'\u2013'}</div>`;
-      div.onclick = () => {
-        if (sel) setup.realmIds = setup.realmIds.filter(x => x !== r.id);
-        else if (setup.realmIds.length < 4) setup.realmIds.push(r.id);
-        renderSetupStep();
-      };
-      grid.appendChild(div);
-    });
+        Choose <strong>${n} Realm cards</strong>${acc?'':' (Realms 1 & 2 \u2014 your opponent picks 3 & 4)'}
+        (${setup.realmIds.length}/${n} selected):</p>
+      <div id="realm-picker-grid">${realmPickerHTML(n, setup.realmIds, [])}</div>`;
     foot.innerHTML = `
       <button class="tb-btn" onclick="setupPrev()">\u2190 Back</button>
       <button class="tb-btn primary" onclick="setupStart()"
-        ${setup.realmIds.length < 4 ? 'disabled style="opacity:.5"' : ''}>Start Race \u2192</button>`;
+        ${setup.realmIds.length !== n ? 'disabled style="opacity:.5"' : ''}>Start Race \u2192</button>`;
   }
 }
 
+window.setupDeckSource = function(v) {
+  setup.p1DeckSource = v;
+  const teamName = selectedTeam?.teamName || null;
+  const deck = resolveDeckSource(v, teamName);
+  if (deck) { setup.p1Deck = deck; renderSetupStep(); }
+  else { openDeckBuilder(1, setup.p1Name || 'Your Deck'); }
+};
+
 window.setupNext = function() {
-  if (setup.step === 1 && setup.p1Deck.length < 1) { toast('Add at least 1 card to your deck'); return; }
-  if (setup.step === 2 && setup.p2Deck.length < 1) { toast("Add at least 1 card to opponent's deck"); return; }
+  if (setup.step === 1 && setup.p1Deck.length < 1) { toast('Choose or build a deck first'); return; }
   setup.step++;
   renderSetupStep();
 };
 window.setupPrev = function() { setup.step = Math.max(0, setup.step-1); renderSetupStep(); };
 
 window.setupStart = function() {
-  if (setup.realmIds.length !== 4) { toast('Choose exactly 4 Realm cards'); return; }
-  const first = parseInt(document.getElementById('s-first')?.value || '1');
+  const acc = GAME_MODE === 'acceleron';
+  const need = acc ? 4 : 2;
+  if (setup.realmIds.length !== need) { toast(`Choose exactly ${need} Realm cards`); return; }
   try {
-    window.G = engine.createGame({
-      realmIds:   setup.realmIds,
-      p1Deck:     engine.shuffle([...setup.p1Deck]),
-      p2Deck:     engine.shuffle([...setup.p2Deck]),
-      p1Name:     setup.p1Name || 'Player 1',
-      p2Name:     setup.p2Name || 'Player 2',
-      firstPlayer: first,
-    });
-    let r = engine.drawOpeningHand(G, 1); if (r.ok) G = r.state;
-        r = engine.drawOpeningHand(G, 2); if (r.ok) G = r.state;
+    if (acc) {
+      const ai = randomTeamDeck(selectedTeam?.teamName);
+      window.G = engine.createGame({
+        realmIds:   [...setup.realmIds],
+        p1Deck:     engine.shuffle([...setup.p1Deck]),
+        p2Deck:     engine.shuffle([...ai.ids]),
+        p1Name:     setup.p1Name || 'Player 1',
+        p2Name:     'Acceleron',
+        firstPlayer: 1,
+      });
+      let r = engine.drawOpeningHand(G, 1); if (r.ok) G = r.state;
+          r = engine.drawOpeningHand(G, 2); if (r.ok) G = r.state;
+    } else {
+      window.G = engine.createGame({
+        realmIds:   [...setup.realmIds],
+        p1Deck:     engine.shuffle([...setup.p1Deck]),
+        p1Name:     setup.p1Name || 'Player 1',
+        firstPlayer: setup.firstPlayer || 1,
+        deferredP2: true,
+      });
+      let r = engine.drawOpeningHand(G, 1); if (r.ok) G = r.state;
+    }
+    setPerspective(1);
     closeModal('setup-modal');
     closeModal('db-modal');
     document.getElementById('menu-overlay').classList.add('hidden');
     window.selected = null;
-    renderAll();
     pushState();
+    if (checkP2SetupGate()) return;   // firstPlayer=2 in PvP: hand off immediately
+    renderAll();
     toast('Race started!');
     setTimeout(() => autoAdvanceTurn(), 300);
   } catch(e) { toast('Error: ' + e.message); }
+};
+
+// ═════════════════════════════════════════════════════════════════════════
+// PLAYER 2 DEFERRED SETUP (blind — board stays hidden until complete)
+// ═════════════════════════════════════════════════════════════════════════
+window.p2setup = { name:'Player 2', team:null, deckSource:null, deck:[], realmIds:[], stage:'handoff' };
+
+window.openP2Setup = function() {
+  // Loaded from a shared link => this device IS Player 2: skip the handoff prompt.
+  p2setup.stage = (MY_PID === 2 && window.location.hash) ? 'form' : 'handoff';
+  document.getElementById('p2setup-overlay').classList.remove('hidden');
+  renderP2Setup();
+};
+
+function renderP2Setup() {
+  const body = document.getElementById('p2setup-body');
+  const foot = document.getElementById('p2setup-foot');
+  const p1 = G.players[1].name;
+
+  if (p2setup.stage === 'handoff') {
+    document.getElementById('p2setup-title').textContent = `${p1} has set up the race`;
+    body.innerHTML = `<p style="font-size:12px;color:var(--text-dim)">
+      Player 2 now chooses their name, deck, and Realms 3 & 4 \u2014 without seeing the board.
+      Pass this device to Player 2, or share the link to their device.</p>
+      <p style="font-size:11px;color:var(--text-faint);margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+      \u2139 The link IS the game \u2014 the full game state travels inside the URL. No server, no accounts;
+      each device also keeps its own local save and game log.</p>`;
+    foot.innerHTML = `
+      <button class="tb-btn" onclick="shareState()">\uD83D\uDCCB Share Link</button>
+      <button class="tb-btn primary" onclick="p2setup.stage='form';setPerspective(2);renderP2Setup()">Player 2: Set Up Here \u2192</button>`;
+    return;
+  }
+
+  document.getElementById('p2setup-title').textContent = 'Player 2 \u2014 Join the Race';
+  const teams = ['Metal Maniacs','Teku Racers','Silencerz','Racing Drones'];
+  window._realmPickTarget = p2setup.realmIds;
+  window._realmPickRerender = renderP2Setup;
+  const p1Realms = G.realms.filter(r => r !== null);
+  body.innerHTML = `
+    <div class="field"><label>Your Name</label>
+      <input id="p2s-name" value="${p2setup.name}" oninput="p2setup.name=this.value"></div>
+    <div class="field"><label>Team</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${teams.map(t => `<button class="tb-btn${p2setup.team===t?' primary':''}"
+          onclick="p2SetTeam('${t}')">${t}</button>`).join('')}
+      </div></div>
+    ${deckSourceHTML('p2', p2setup.deckSource, p2setup.team)}
+    <p style="font-size:11px;color:var(--text-dim)">Current deck: <strong>${p2setup.deck.length}</strong> cards</p>
+    <div class="field"><label>Realms 3 & 4 (${p2setup.realmIds.length}/2 \u2014 ${p1.replace(/</g,'&lt;')}'s picks are locked)</label>
+      <div id="realm-picker-grid">${realmPickerHTML(2, p2setup.realmIds, p1Realms)}</div></div>`;
+  foot.innerHTML = `
+    <button class="tb-btn primary" onclick="p2SetupConfirm()"
+      ${(p2setup.deck.length < 1 || p2setup.realmIds.length !== 2) ? 'disabled style="opacity:.5"' : ''}>
+      Race! \u2192</button>`;
+}
+
+window.p2SetTeam = function(t) {
+  p2setup.team = t;
+  p2setup.deckSource = 'team';
+  p2setup.deck = [...TEAM_DECKS[t].ids];
+  renderP2Setup();
+};
+window.p2DeckSource = function(v) {
+  p2setup.deckSource = v;
+  const deck = resolveDeckSource(v, p2setup.team);
+  if (deck) { p2setup.deck = deck; renderP2Setup(); }
+  else {
+    // Custom build: reuse the deck builder against setup.p2Deck, then reclaim
+    window.setup.p2Deck = [...p2setup.deck];
+    window._p2CustomBuild = true;
+    openDeckBuilder(2, p2setup.name || 'Player 2');
+  }
+};
+window.p2SetupConfirm = function() {
+  const r = engine.completeP2Setup(G, {
+    deck: p2setup.deck,
+    realmIds: [...p2setup.realmIds],
+    name: (document.getElementById('p2s-name')?.value || p2setup.name || 'Player 2'),
+  });
+  if (!r.ok) { toast(r.error); return; }
+  G = r.state;
+  appendLogs(r.log || []);
+  document.getElementById('p2setup-overlay').classList.add('hidden');
+  setPerspective(2);
+  window.selected = null;
+  pushState();
+  renderAll();
+  toast('You\u2019re in the race!');
+  if (G.active_player === 2) {
+    setTimeout(() => {
+      const r2 = engine.beginTurn(G);
+      if (r2.ok) { G = r2.state; appendLogs(r2.log); }
+      autoAdvanceTurn();
+    }, 300);
+  }
 };
 
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -1458,6 +1732,7 @@ window.endTurn = function() {
       G = r.state; appendLogs(r.log);
       window.selected = null;
       pushState();
+      if (checkP2SetupGate()) return;   // P2 must set up before their first turn
       renderAll();
       toast(`Turn passed to ${G.players[G.active_player].name}`);
       setTimeout(() => {
@@ -1625,16 +1900,39 @@ function renderOppStrip() {
   document.getElementById('opp-finished').textContent=fin>0?`\u2713 ${fin} finished`:'';
 }
 
+// ── Card-art display mode (persisted; off = fast text chips) ────────────
+window.IMG_MODE = localStorage.getItem('arccg_img_mode') !== 'off';
+window.toggleImgMode = function() {
+  IMG_MODE = !IMG_MODE;
+  localStorage.setItem('arccg_img_mode', IMG_MODE ? 'on' : 'off');
+  toast(IMG_MODE ? 'Card art: ON' : 'Card art: OFF (faster)');
+  if (G) renderAll();
+};
+function cardThumb(c){ return c.thumb || `/thumbs/${String(c.id).padStart(3,'0')}_${'x'}.webp`; }
+
 function renderRealmTrack() {
   const track=document.getElementById('realm-track'); track.innerHTML='';
   G.realms.forEach((realmId,ri)=>{
-    const pos=ri+1; const realm=CARD_MAP[realmId]; const esc=realm?.escape||{};
+    const pos=ri+1;
+    if (realmId === null) {
+      const col=document.createElement('div'); col.className='realm-col'; col.dataset.pos=pos;
+      col.style.opacity='.45';
+      col.innerHTML=`<div class="realm-header">
+        <div class="realm-num">Realm ${pos}</div>
+        <div class="realm-name">???</div>
+        <div class="realm-esc" style="font-size:9px;color:var(--text-dim)">Chosen by opponent</div>
+        </div><div class="realm-vehicles" id="rv-${pos}"></div>`;
+      track.appendChild(col);
+      return;
+    }
+    const realm=CARD_MAP[realmId]; const esc=realm?.escape||{};
     const col=document.createElement('div'); col.className='realm-col'; col.dataset.pos=pos;
+    const artH=(IMG_MODE&&realm?.image)?`<div class="realm-art" style="background-image:url('${realm.image}')"></div>`:'';
     const escS=esc.speed>0?`<div class="esc-val speed">${esc.speed}</div>`:'';
     const escP=esc.power>0?`<div class="esc-val power">${esc.power}</div>`:'';
     const escPf=esc.performance>0?`<div class="esc-val perf">${esc.performance}</div>`:'';
     const terrStr=(realm?.terrain||[]).join(' ');
-    col.innerHTML=`<div class="realm-header">
+    col.innerHTML=`${artH}<div class="realm-header">
       <div class="realm-num">Realm ${pos}</div>
       <div class="realm-name">${realm?.name?.replace(' REALM','')||'?'}</div>
       <div class="realm-esc">${escS}${escP}${escPf}</div>
@@ -1685,7 +1983,16 @@ function buildVStackEl(pid,vi,vs) {
       tkH+=`<span class="token-pip danger">AB\u00B7${eff.tokens_remaining}</span>`;
   });
   const oppBadge=!isMine?`<span style="font-size:7px;color:var(--red);margin-left:2px">OPP</span>`:'';
-  div.innerHTML=`${tb}
+  let imgH='';
+  if (IMG_MODE && vc) {
+    div.classList.add('img-mode');
+    // Vehicle scans are portrait files of landscape cards: rotate -90.
+    // Fixed generous dimensions + overflow:hidden on the chip = cover.
+    imgH=`<img class="vs-img" src="${vc.thumb||''}" alt="" loading="lazy"
+      style="width:130px;height:180px">
+      <div class="vs-shade"></div>`;
+  }
+  div.innerHTML=`${imgH}${tb}
     <div class="vstack-name"><span class="vstack-team ${tc}"></span>${(vc?.name||'?').replace('\u2122','').replace('.v2','\u00B7v2')}${oppBadge}</div>
     <div class="spp-row">
       <div><div class="spp-box speed">${spp.speed}</div><div class="spp-label">SPD</div></div>
@@ -1721,10 +2028,21 @@ function renderHand() {
     else if(c.spp_bonus){const b=c.spp_bonus;sppH=`<div class="hc-spp"><span class="s">+${b.speed||0}</span><span class="p">+${b.power||0}</span><span class="f">+${b.performance||0}</span></div>`}
     else if(c.spp_damage){const d=c.spp_damage;sppH=`<div class="hc-spp"><span class="s" style="color:#e05050">${d.speed||0}</span><span class="p" style="color:#e05050">${d.power||0}</span><span class="f" style="color:#e05050">${d.performance||0}</span></div>`}
     const div=document.createElement('div');
+    const isVeh=c.type==='Vehicle';
     div.className='hand-card'+(isSel?' selected':'')+(canAct||canV?(play?' playable':''):' not-playable');
-    div.innerHTML=`${c.ap_cost!==undefined?`<div class="hc-ap">${c.ap_cost}</div>`:''}
-      <div class="hc-type ${c.type}">${c.type==='Accelecharger'?'A-Charger':c.type}</div>
-      <div class="hc-name">${c.name.replace('\u2122','').replace('\u00AE','')}</div>${sppH}`;
+    if (IMG_MODE && c.thumb) {
+      div.classList.add('img-mode');
+      if (isVeh) div.classList.add('hc-vehicle');
+      // Vehicles: rotate the portrait scan -90 into a landscape chip.
+      const imgStyle=isVeh?'width:78px;height:110px':'width:100%;height:100%';
+      div.innerHTML=`<img class="hc-img${isVeh?' rot':''}" src="${c.thumb}" alt="${c.name.replace(/"/g,'')}"
+          loading="lazy" style="${imgStyle}">
+        ${c.ap_cost!==undefined?`<div class="hc-ap">${c.ap_cost}</div>`:''}`;
+    } else {
+      div.innerHTML=`${c.ap_cost!==undefined?`<div class="hc-ap">${c.ap_cost}</div>`:''}
+        <div class="hc-type ${c.type}">${c.type==='Accelecharger'?'A-Charger':c.type}</div>
+        <div class="hc-name">${c.name.replace('\u2122','').replace('\u00AE','')}</div>${sppH}`;
+    }
     div.onclick=()=>selectHandCard(cardId);
     div.oncontextmenu=e=>{e.preventDefault();showCardDetail(cardId,e.clientX,e.clientY)};
     cont.appendChild(div);
@@ -1800,18 +2118,60 @@ window.toggleLog = function() { document.getElementById('log-panel').classList.t
 window.shareState = function() {
   if (!G) return;
   const url=engine.getShareURL(G);
-  navigator.clipboard.writeText(url).then(()=>toast('Link copied! Send to your opponent.')).catch(()=>prompt('Copy this link:',url));
+  navigator.clipboard.writeText(url).then(()=>toast('Link copied \u2014 the link IS the game. Your opponent opens it to play their turn.')).catch(()=>prompt('Copy this link:',url));
   pushState();
 };
 function pushState() {
   if (!G) return;
   history.replaceState(null, '', '#'+engine.encodeState(G));
+  persistLocal();
+}
+
+// ── Local persistence ─────────────────────────────────────────────────────
+// Two independent save slots: PvP (link-based games; logs are per-device)
+// and PvE (vs Acceleron; full local game). Logs are keyed by game id.
+function saveSlotKey() { return GAME_MODE === 'acceleron' ? 'arccg_save_pve' : 'arccg_save_pvp'; }
+function logKey(gid)   { return 'arccg_log_' + gid; }
+
+function persistLocal() {
+  if (!G) return;
+  try {
+    localStorage.setItem(saveSlotKey(), JSON.stringify({ state: G, mode: GAME_MODE, saved: Date.now() }));
+    if (G.gid) localStorage.setItem(logKey(G.gid), JSON.stringify(G.log || []));
+  } catch(e) { /* storage full: non-fatal */ }
+}
+
+// When a shared link arrives, its state carries no log. Restore this
+// device's own history for the game and mark any turns we never saw.
+function restoreLocalLog() {
+  if (!G || !G.gid) return;
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(logKey(G.gid))) || []; } catch(e) {}
+  const lastSeen = local.length
+    ? Math.max(0, ...local.map(l => parseInt((l.match(/^\[T(\d+)\]/)||[])[1] || 0)))
+    : 0;
+  if (G.turn > lastSeen + 1) {
+    local.push(`[T${G.turn}] \u2014 Turn${G.turn-lastSeen-1>1?'s':''} ${lastSeen+1}\u2013${G.turn-1} played on your opponent's device \u2014`);
+  }
+  G.log = local.concat(G.log || []);
 }
 
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // UTILS
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-window.closeModal = id => document.getElementById(id)?.classList.add('hidden');
+window.closeModal = id => {
+  document.getElementById(id)?.classList.add('hidden');
+  if (id === 'db-modal') {
+    // Returning from a custom build: sync the relevant setup context
+    if (window._p2CustomBuild) {
+      window._p2CustomBuild = false;
+      p2setup.deck = [...(setup.p2Deck || [])];
+      renderP2Setup();
+    } else if (!document.getElementById('setup-modal').classList.contains('hidden')) {
+      renderSetupStep();
+    }
+  }
+};
 window.openHelp   = () => document.getElementById('help-modal').classList.remove('hidden');
 
 function setHint(msg) { const el=document.getElementById('action-hint');el.textContent=msg;el.classList.add('show'); }
@@ -1835,7 +2195,13 @@ document.addEventListener('keydown', e => {
   if (e.key==='l'||e.key==='L') toggleLog();
 });
 window.addEventListener('hashchange', () => {
-  const s=engine.loadStateFromURL(); if(s){G=s;renderAll();toast('State loaded from URL');}
+  const s=engine.loadStateFromURL();
+  if(s){
+    G=s; setPerspectiveFromState(G);
+    if (checkP2SetupGate()) return;
+    restoreLocalLog();
+    renderAll(); toast('State loaded from URL');
+  }
 });
 
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
