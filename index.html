@@ -1717,7 +1717,35 @@ window.autoAdvanceTurn = function() {
 function doTuneUp() {
   if (!G || G.phase !== 'tune_up') return;
   const r = engine.tuneUp(G);
-  if (r.ok) { G = r.state; appendLogs(r.log); renderAll(); }
+  if (r.ok) {
+    G = r.state; appendLogs(r.log);
+    // All or Nothing — decrement the token for each of the active player's marked vehicles.
+    // Walk backwards: removeAllOrNothingToken can splice a junked vehicle out of the array,
+    // and reverse order keeps not-yet-processed indices stable when that happens.
+    const pid = G.active_player;
+    for (let i = G.players[pid].vehicles.length - 1; i >= 0; i--) {
+      const vs = G.players[pid].vehicles[i];
+      if (vs.tokens?.['all_or_nothing']) {
+        const ar = engine.removeAllOrNothingToken(G, pid, i);
+        if (ar.ok) { G = ar.state; appendLogs(ar.log); }
+      }
+    }
+    renderAll();
+    // Forest Inferno — the active player owes a discard from a hazard played on a prior turn
+    if (pid === MY_PID && (r.log||[]).some(l => l.includes('must discard 1 card'))) {
+      promptForceDiscard();
+    }
+  }
+}
+
+function promptForceDiscard() {
+  const hand = G.players[MY_PID].hand;
+  if (!hand.length) return;
+  const opts = hand.map(cid => ({ label: CARD_MAP[cid]?.name || cid, cardId: cid }));
+  showPrompt('Forest Inferno', 'Choose a card to discard:', opts, opt => {
+    const r = engine.forceDiscard(G, MY_PID, opt.cardId);
+    if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+  });
 }
 
 window.endTurn = function() {
@@ -1727,6 +1755,16 @@ window.endTurn = function() {
   }
   if (G.phase === 'tune_up') doTuneUp();
   if (G.phase === 'action') {
+    // Folding Corners — if no APs were spent this turn, mark any vehicle carrying it
+    const p = G.players[MY_PID];
+    if (p.aps_remaining === engine.calcTotalAPs(G, MY_PID)) {
+      p.vehicles.forEach((vs, i) => {
+        if (vs.equipped_ac === 126) {
+          const fr = engine.addFoldingCornersToken(G, MY_PID, i);
+          if (fr.ok) { G = fr.state; appendLogs(fr.log); }
+        }
+      });
+    }
     const r = engine.endTurn(G, MY_PID);
     if (r.ok) {
       G = r.state; appendLogs(r.log);
@@ -1782,13 +1820,13 @@ window.selectVStack = function(pid, vehicleIdx) {
   let r;
   if (c.type === 'Shift' && pid === MY_PID) {
     r = engine.equipShift(G, MY_PID, sel.cardId, vehicleIdx);
-    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId); } else toast(r.error);
+    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId, {vehicleIdx}); } else toast(r.error);
   } else if (c.type === 'Mod' && pid === MY_PID) {
     r = engine.equipMod(G, MY_PID, sel.cardId, vehicleIdx);
-    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId); } else toast(r.error);
+    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId, {vehicleIdx}); } else toast(r.error);
   } else if (c.type === 'Accelecharger' && pid === MY_PID) {
     r = engine.equipAC(G, MY_PID, sel.cardId, vehicleIdx);
-    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId); } else toast(r.error);
+    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, sel.cardId, {vehicleIdx}); } else toast(r.error);
   } else if (c.type === 'Hazard' && pid === OPP_PID) {
     playHazardOnVehicle(sel.cardId, vehicleIdx); return;
   } else { toast('Invalid target for this card'); return; }
@@ -1809,24 +1847,207 @@ function playHazardOnVehicle(hazardId, tvi) {
     ov.equipped_mods.forEach(mid => opts.push({ label:`Mod: ${CARD_MAP[mid]?.name}`, cardId:mid }));
     if (!opts.length) { toast('No equipped Shift/Mod to target'); return; }
     showPrompt(`${hc.name} \u2014 Target`, 'Choose which equipped card to damage:', opts, opt => {
-      const r = engine.playHazard(G, MY_PID, hazardId, tvi, opt.cardId);
+      const canceledBy = acceleronReaction(tvi);
+      const r = engine.playHazard(G, MY_PID, hazardId, tvi, opt.cardId, canceledBy);
       if (r.ok) { G=r.state; appendLogs(r.log); } else toast(r.error);
       window.selected=null; clearHint(); renderAll();
     });
   } else {
-    const r = engine.playHazard(G, MY_PID, hazardId, tvi, null);
-    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, hazardId); } else toast(r.error);
+    const canceledBy = acceleronReaction(tvi);
+    const r = engine.playHazard(G, MY_PID, hazardId, tvi, null, canceledBy);
+    if (r.ok) { G=r.state; appendLogs(r.log); checkAbilityPrompt(r.log, hazardId, {oppVehicleIdx: tvi}); } else toast(r.error);
     window.selected=null; clearHint(); renderAll();
   }
 }
 
-function checkAbilityPrompt(logs, cardId) {
+function checkAbilityPrompt(logs, cardId, ctx={}) {
   const rel = (logs||[]).find(l => l.includes('resolve via'));
-  if (rel) showAbilityPrompt(rel, cardId);
+  if (rel) showAbilityPrompt(rel, cardId, ctx);
 }
 
-function showAbilityPrompt(logLine, srcCardId) {
+function showAbilityPrompt(logLine, srcCardId, ctx={}) {
   if (!logLine) return;
+  if (logLine.includes('resolve via transferMod')) {
+    // Hot Wire (213) — transfer 1 Mod between your own vehicles
+    const mine = G.players[MY_PID].vehicles;
+    const modOpts = mine.flatMap((vs,i) => vs.equipped_mods.map(mid =>
+      ({ label:`${CARD_MAP[mid]?.name} (on ${CARD_MAP[vs.card_id]?.name})`, cardId:mid, fromIdx:i })));
+    if (!modOpts.length) { toast('No equipped Mods to transfer'); return; }
+    showPrompt('Hot Wire', 'Choose a Mod to move:', modOpts, opt => {
+      const dests = mine.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i})).filter(t=>t.vehicleIdx!==opt.fromIdx);
+      if (!dests.length) { toast('No other vehicle to receive it'); return; }
+      showPrompt('Hot Wire', 'Move it to which vehicle?', dests, dest => {
+        const r = engine.transferMod(G, MY_PID, opt.cardId, opt.fromIdx, dest.vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    });
+    return;
+  }
+  if (logLine.includes('resolve via swapVehiclePositions')) {
+    if (srcCardId === 198) {
+      // Tornado Vortex — swap 2 of the OPPONENT's vehicles; first was already targeted
+      const first = ctx.oppVehicleIdx;
+      const opts = G.players[OPP_PID].vehicles
+        .map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i}))
+        .filter(o=>o.vehicleIdx!==first);
+      if (first==null || !opts.length) { toast('Opponent has no second vehicle to swap'); return; }
+      showPrompt('Tornado Vortex', "Swap with which of the opponent's vehicles?", opts, opt => {
+        const r = engine.swapVehiclePositions(G, OPP_PID, first, opt.vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    } else {
+      // Draft & Pass (225) — swap 2 of your own same-team vehicles
+      const mine = G.players[MY_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i}));
+      if (mine.length < 2) { toast('Need 2 vehicles in play to swap'); return; }
+      showPrompt('Draft & Pass', 'Choose first vehicle:', mine, a => {
+        const rest = mine.filter(o=>o.vehicleIdx!==a.vehicleIdx);
+        showPrompt('Draft & Pass', 'Swap with which vehicle?', rest, b => {
+          const r = engine.swapVehiclePositions(G, MY_PID, a.vehicleIdx, b.vehicleIdx);
+          if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+        });
+      });
+    }
+    return;
+  }
+  if (logLine.includes('resolve via swapRealms')) {
+    const opts = G.realms.map((rid,i)=>({label:CARD_MAP[rid]?.name||`Realm ${i+1}`, realmIdx:i}));
+    showPrompt('Home Track Advantage', 'Choose first Realm:', opts, a => {
+      const rest = opts.filter(o=>o.realmIdx!==a.realmIdx);
+      showPrompt('Home Track Advantage', 'Swap with which Realm?', rest, b => {
+        const r = engine.swapRealms(G, a.realmIdx, b.realmIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    });
+    return;
+  }
+  if (logLine.includes('resolve via setHackMimic')) {
+    const vehicleIdx = ctx.vehicleIdx;
+    if (vehicleIdx == null) { toast('Hack Mimic: no vehicle context'); return; }
+    const teams = ['Metal Maniacs','Teku Racers','Silencerz','Racing Drones'];
+    showPrompt('Hack Mimic', 'Choose team allegiance:', teams.map(t=>({label:t, team:t})), opt => {
+      const r = engine.setHackMimic(G, MY_PID, vehicleIdx, opt.team);
+      if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    });
+    return;
+  }
+  if (logLine.includes('resolve via removeMod')) {
+    // Blown Hydrant (206) — remove 1 Mod from the already-targeted opponent vehicle
+    const idx = ctx.oppVehicleIdx;
+    const vs = idx!=null ? G.players[OPP_PID].vehicles[idx] : null;
+    if (!vs || !vs.equipped_mods.length) { toast('No Mods to remove'); return; }
+    const opts = vs.equipped_mods.map(mid => ({label:CARD_MAP[mid]?.name, cardId:mid}));
+    showPrompt('Blown Hydrant', 'Remove which Mod?', opts, opt => {
+      const r = engine.removeMod(G, OPP_PID, idx, opt.cardId);
+      if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    });
+    return;
+  }
+  if (logLine.includes('resolve via pickLine')) {
+    // Pick a Line (211) — sacrifice 1 vehicle to advance another, same Realm
+    const mine = G.players[MY_PID].vehicles.map((vs,i)=>({vs,i}));
+    const bySameRealm = mine.filter(({vs,i}) => mine.some(o => o.i!==i && o.vs.realm_position===vs.realm_position));
+    if (!bySameRealm.length) { toast('No two vehicles share a Realm'); return; }
+    showPrompt('Pick a Line', 'Sacrifice which vehicle?', bySameRealm.map(({vs,i})=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i})), sac => {
+      const opts = mine.filter(o => o.i!==sac.vehicleIdx && o.vs.realm_position===G.players[MY_PID].vehicles[sac.vehicleIdx].realm_position)
+        .map(o=>({label:CARD_MAP[o.vs.card_id]?.name, vehicleIdx:o.i}));
+      showPrompt('Pick a Line', 'Advance which vehicle?', opts, adv => {
+        const r = engine.pickLine(G, MY_PID, sac.vehicleIdx, adv.vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    });
+    return;
+  }
+  if (logLine.includes('resolve via equipACFree')) {
+    // Rev Matching (218) — equip 1 AC for free on any of your vehicles
+    const acCards = [...new Set(G.players[MY_PID].hand.filter(id => CARD_MAP[id]?.type === 'Accelecharger'))];
+    if (!acCards.length) { toast('No Accelechargers in hand'); return; }
+    const targets = G.players[MY_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i})).filter(t => !G.players[MY_PID].vehicles[t.vehicleIdx].equipped_ac);
+    if (!targets.length) { toast('No vehicle without an Accelecharger already equipped'); return; }
+    showPrompt('Rev Matching', 'Equip which Accelecharger?', acCards.map(id=>({label:CARD_MAP[id]?.name, cardId:id})), card => {
+      showPrompt('Rev Matching', 'On which vehicle?', targets, dest => {
+        const r = engine.equipACFree(G, MY_PID, card.cardId, dest.vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    });
+    return;
+  }
+  if (logLine.includes('resolve via equipModFree')) {
+    const modCards = [...new Set(G.players[MY_PID].hand.filter(id => CARD_MAP[id]?.type === 'Mod'))];
+    if (!modCards.length) { toast('No Mods in hand'); return; }
+    const doEquip = (vehicleIdx) => {
+      showPrompt('Choose Mod', 'Equip which Mod (modability bypassed)?', modCards.map(id=>({label:CARD_MAP[id]?.name, cardId:id})), card => {
+        const r = engine.equipModFree(G, MY_PID, card.cardId, vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    };
+    if (srcCardId === 222) {
+      // Guts — same vehicle it was just equipped to
+      if (ctx.vehicleIdx == null) { toast('Guts: no vehicle context'); return; }
+      doEquip(ctx.vehicleIdx);
+    } else {
+      // Under the Hood — any of your vehicles
+      const targets = G.players[MY_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i}));
+      if (!targets.length) { toast('No vehicles in play'); return; }
+      showPrompt('Under the Hood', 'Equip a free Mod on which vehicle?', targets, dest => doEquip(dest.vehicleIdx));
+    }
+    return;
+  }
+  if (logLine.includes('resolve via equipShiftFree')) {
+    // Navigator (117) — equip 1 Shift for free on any vehicle
+    const shiftCards = [...new Set(G.players[MY_PID].hand.filter(id => CARD_MAP[id]?.type === 'Shift'))];
+    if (!shiftCards.length) { toast('No Shifts in hand'); return; }
+    const targets = G.players[MY_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i}));
+    if (!targets.length) { toast('No vehicles in play'); return; }
+    showPrompt('Navigator', 'Equip which Shift?', shiftCards.map(id=>({label:CARD_MAP[id]?.name, cardId:id})), card => {
+      showPrompt('Navigator', 'On which vehicle?', targets, dest => {
+        const r = engine.equipShiftFree(G, MY_PID, card.cardId, dest.vehicleIdx);
+        if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+      });
+    });
+    return;
+  }
+  if (logLine.includes('resolve via applyMagneticBounce')) {
+    // Suspension Enhancers (153) — send 1 opposing vehicle back 1 Realm
+    const targets = G.players[OPP_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i}));
+    if (!targets.length) { toast('Opponent has no vehicles in play'); return; }
+    showPrompt('Suspension Enhancers', "Send which of the opponent's vehicles back?", targets, opt => {
+      const r = engine.applyMagneticBounce(G, OPP_PID, opt.vehicleIdx);
+      if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    });
+    return;
+  }
+  if (logLine.includes('resolve via revealOpponentHand')) {
+    // Spy Eye (163) / Undistort (113) — read-only, just log it
+    const r = engine.revealOpponentHand(G, MY_PID);
+    if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    return;
+  }
+  if (logLine.includes('resolve via setFogVision')) {
+    // Fog Vision (110) — relocate this Realm's Escape Value to a different SPP stat
+    if (ctx.vehicleIdx == null) { toast('Fog Vision: no vehicle context'); return; }
+    const stats = [
+      { label:'Speed', stat:'speed' },
+      { label:'Power', stat:'power' },
+      { label:'Performance', stat:'performance' },
+    ];
+    showPrompt('Fog Vision', 'Relocate the Escape Value to which stat?', stats, opt => {
+      const r = engine.setFogVision(G, MY_PID, ctx.vehicleIdx, opt.stat);
+      if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    });
+    return;
+  }
+  if (logLine.includes('resolve via bootleggerRace')) {
+    // Bootlegger Reverse (227), GAMBLE — race an opposing vehicle in the same Realm
+    if (ctx.vehicleIdx == null) { toast('Bootlegger Reverse: no vehicle context'); return; }
+    const myRealm = G.players[MY_PID].vehicles[ctx.vehicleIdx]?.realm_position;
+    const targets = G.players[OPP_PID].vehicles.map((vs,i)=>({label:CARD_MAP[vs.card_id]?.name, vehicleIdx:i})).filter(t => G.players[OPP_PID].vehicles[t.vehicleIdx].realm_position === myRealm);
+    if (!targets.length) { toast('No opposing vehicle in the same Realm'); return; }
+    showPrompt('Bootlegger Reverse \u2014 GAMBLE', 'Race which opposing vehicle?', targets, opt => {
+      const r = engine.bootleggerRace(G, MY_PID, ctx.vehicleIdx, opt.vehicleIdx);
+      if (r.ok) { G=r.state; appendLogs(r.log); renderAll(); } else toast(r.error);
+    });
+    return;
+  }
   const salvageFromJunk = (filter, label, cb) => {
     const junk = G.players[MY_PID].junk_pile.filter(filter);
     if (!junk.length) { toast(`No ${label} in junk pile`); return; }
@@ -2366,7 +2587,63 @@ function enumerateLegalMoves(state, accPid) {
 }
 
 // \u2500\u2500 Execute a single Acceleron move against the engine \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-function executeAcceleronMove(move) {
+// ── Reactive plays (2-D / Dodging Disaster / Asphalt Anchor) — Acceleron mode only ──
+// Scope decision: PvP hazards keep resolving immediately (no live opponent to react in
+// the async link-passing model). vs-Acceleron has a genuinely live session on both
+// sides, so both directions are wired here.
+function getAvailableReactions(pid, targetVehicleIdx) {
+  const p = G.players[pid];
+  const targetVs = p.vehicles[targetVehicleIdx];
+  const opts = [];
+  if (p.hand.includes(127) && targetVs && targetVs.equipped_ac === null) {
+    opts.push({ type:'reactiveAC', label:'2-D \u2014 cancel & equip (+2 Performance)', vehicleIdx: targetVehicleIdx, cancelLabel:'2-D' });
+  }
+  if (p.hand.includes(238)) {
+    opts.push({ type:'dodgingDisaster', label:'Dodging Disaster \u2014 cancel this Hazard', cancelLabel:'Dodging Disaster' });
+  }
+  if (targetVs) {
+    const anchorIdx = p.vehicles.findIndex(v => v.realm_position===targetVs.realm_position && v.equipped_mods.includes(140));
+    if (anchorIdx >= 0) {
+      opts.push({ type:'asphaltAnchor', label:'Junk Asphalt Anchor \u2014 cancel this Hazard', vehicleIdx: anchorIdx, cancelLabel:'Asphalt Anchor' });
+    }
+  }
+  return opts;
+}
+
+function resolveReaction(pid, choice) {
+  let r;
+  if (choice.type === 'reactiveAC') r = engine.playReactiveAC(G, pid, choice.vehicleIdx);
+  else if (choice.type === 'dodgingDisaster') r = engine.playDodgingDisaster(G, pid);
+  else if (choice.type === 'asphaltAnchor') r = engine.junkAsphaltAnchor(G, pid, choice.vehicleIdx);
+  else return null;
+  if (r.ok) { G = r.state; appendLogs(r.log); return choice.cancelLabel; }
+  toast(r.error); return null;
+}
+
+// Acceleron's own reaction to a hazard the human just played — 'hard' difficulty only,
+// always takes the first available option (simple heuristic, mirrors heuristicFallback).
+function acceleronReaction(targetVehicleIdx) {
+  if (GAME_MODE !== 'acceleron' || ACC_DIFFICULTY !== 'hard') return null;
+  const reactions = getAvailableReactions(OPP_PID, targetVehicleIdx);
+  if (!reactions.length) return null;
+  return resolveReaction(OPP_PID, reactions[0]);
+}
+
+// Wraps showPrompt in a Promise that always resolves — including if the player hits
+// the modal's own Cancel button, so an async caller (the Acceleron turn driver) can
+// never hang waiting on a choice that never fires.
+function promptReaction(title, desc, options) {
+  return new Promise(resolve => {
+    let done = false;
+    const cancelBtn = document.querySelector('#prompt-modal .modal-foot .tb-btn');
+    const finish = (val) => { if (done) return; done = true; cancelBtn.removeEventListener('click', onCancel); resolve(val); };
+    const onCancel = () => finish(null);
+    cancelBtn.addEventListener('click', onCancel);
+    showPrompt(title, desc, options, opt => finish(opt));
+  });
+}
+
+async function executeAcceleronMove(move) {
   const accPid = OPP_PID;
   let r;
   switch(move.type) {
@@ -2385,9 +2662,20 @@ function executeAcceleronMove(move) {
     case 'equipAC':
       r = engine.equipAC(G, accPid, move.cardId, move.vehicleIdx);
       break;
-    case 'playHazard':
-      r = engine.playHazard(G, accPid, move.cardId, move.vehicleIdx, move.targetCardId);
+    case 'playHazard': {
+      const reactions = getAvailableReactions(MY_PID, move.vehicleIdx);
+      let canceledBy = null;
+      if (reactions.length) {
+        const targetVs = G.players[MY_PID].vehicles[move.vehicleIdx];
+        const opts = [...reactions, { type:'none', label:'Let it hit' }];
+        const choice = await promptReaction('Incoming Hazard!',
+          `Acceleron is playing ${CARD_MAP[move.cardId]?.name} on ${CARD_MAP[targetVs?.card_id]?.name}. React?`,
+          opts);
+        if (choice && choice.type !== 'none') canceledBy = resolveReaction(MY_PID, choice);
+      }
+      r = engine.playHazard(G, accPid, move.cardId, move.vehicleIdx, move.targetCardId, canceledBy);
       break;
+    }
     case 'drawExtra':
       r = engine.drawExtra(G, accPid);
       break;
@@ -2435,9 +2723,9 @@ async function runAcceleronTurn() {
         const sb = (cb.speed||0)+(cb.power||0)+(cb.performance||0);
         return sb > sa ? b : a;
       });
-      executeAcceleronMove(best);
+      await executeAcceleronMove(best);
     } else {
-      executeAcceleronMove({ type:'skipVehicle' });
+      await executeAcceleronMove({ type:'skipVehicle' });
     }
     await pause(600);
   }
@@ -2483,7 +2771,7 @@ async function runAcceleronTurn() {
     for (const move of chosenMoves) {
       if (!move?.type) continue;
       await pause(500);
-      executeAcceleronMove(move);
+      await executeAcceleronMove(move);
       renderAll();
     }
   }

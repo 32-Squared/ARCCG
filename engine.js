@@ -442,15 +442,21 @@ export function createEngine(allCards) {
 
       const spp  = calcSPP(s, pid, idx);
       const esc  = realm.escape;
-      const meetsS = spp.speed       >= (esc.speed       || 0);
-      const meetsP = spp.power       >= (esc.power       || 0);
-      const meetsPf= spp.performance >= (esc.performance || 0);
 
-      // Must meet the one non-zero escape value (Realms have exactly one non-zero)
+      // Fog Vision — relocate which stat this vehicle's Escape Value is checked
+      // against (same magnitude, different stat), gated on the AC still being
+      // equipped so a stale token from a discarded Fog Vision is never honored.
+      const fogStat = (vs.equipped_ac === 110) ? vs.tokens?.fog_vision : null;
       const mustMeet = [];
-      if (esc.speed > 0)       mustMeet.push({ stat:'speed',       val: esc.speed,       has: spp.speed });
-      if (esc.power > 0)       mustMeet.push({ stat:'power',       val: esc.power,       has: spp.power });
-      if (esc.performance > 0) mustMeet.push({ stat:'performance', val: esc.performance, has: spp.performance });
+      if (fogStat) {
+        const escVal = esc.speed || esc.power || esc.performance || 0;
+        mustMeet.push({ stat: fogStat, val: escVal, has: spp[fogStat] });
+      } else {
+        // Must meet the one non-zero escape value (Realms have exactly one non-zero)
+        if (esc.speed > 0)       mustMeet.push({ stat:'speed',       val: esc.speed,       has: spp.speed });
+        if (esc.power > 0)       mustMeet.push({ stat:'power',       val: esc.power,       has: spp.power });
+        if (esc.performance > 0) mustMeet.push({ stat:'performance', val: esc.performance, has: spp.performance });
+      }
 
       const canAdvance = mustMeet.every(m => m.has >= m.val);
       if (!canAdvance) continue;
@@ -693,7 +699,7 @@ export function createEngine(allCards) {
   /**
    * equipShift — pay AP cost to equip a Shift card onto a vehicle.
    */
-  function equipShift(stateIn, pid, cardId, vehicleIdx) {
+  function equipShift(stateIn, pid, cardId, vehicleIdx, free = false) {
     if (stateIn.phase !== 'action') return fail(stateIn, 'Not in action phase');
     if (stateIn.active_player !== pid) return fail(stateIn, 'Not your turn');
     const s = clone(stateIn);
@@ -704,7 +710,7 @@ export function createEngine(allCards) {
     if (!isShift(cardId)) return fail(s, 'Not a Shift card');
 
     const c = card(cardId);
-    const ap = c.ap_cost;
+    const ap = free ? 0 : c.ap_cost;
 
     // Fog Realm restriction
     if (s.restrictions.no_shifts_realm_idx === vs.realm_position)
@@ -722,7 +728,7 @@ export function createEngine(allCards) {
     vs.equipped_shift = cardId;
     p.aps_remaining  -= ap;
 
-    const logs = [`${p.name} equips ${c.name} on ${card(vs.card_id).name} (${p.aps_remaining} APs left).`];
+    const logs = [`${p.name} equips ${c.name} on ${card(vs.card_id).name}${free ? ' for free' : ''} (${p.aps_remaining} APs left).`];
 
     // ── On-play ability triggers ─────────────────────────────────────────────
     const r = _triggerShiftOnPlay(s, pid, vehicleIdx, cardId);
@@ -731,11 +737,17 @@ export function createEngine(allCards) {
     return ok(s, logs);
   }
 
+  /** equipShiftFree — Navigator (117): equip 1 Shift for free on any vehicle */
+  function equipShiftFree(stateIn, pid, cardId, vehicleIdx) {
+    return equipShift(stateIn, pid, cardId, vehicleIdx, true);
+  }
+
   /**
    * equipMod — pay AP cost to equip a Mod onto a vehicle.
    * @param {boolean} bypassModability  for Guts / Size Scaler / Junk Realm / Under the Hood
+   * @param {boolean} free              for Guts / Under the Hood (0 AP)
    */
-  function equipMod(stateIn, pid, cardId, vehicleIdx, bypassModability = false) {
+  function equipMod(stateIn, pid, cardId, vehicleIdx, bypassModability = false, free = false) {
     if (stateIn.phase !== 'action') return fail(stateIn, 'Not in action phase');
     if (stateIn.active_player !== pid) return fail(stateIn, 'Not your turn');
     const s = clone(stateIn);
@@ -747,7 +759,7 @@ export function createEngine(allCards) {
     if (p.no_mods_next_turn) return fail(s, 'Wrecking Balls: cannot play Mods this turn');
 
     const c  = card(cardId);
-    const ap = c.ap_cost;
+    const ap = free ? 0 : c.ap_cost;
 
     // Junk Realm: bypass modability
     const inJunkRealm = card(s.realms[vs.realm_position - 1])?.name === 'JUNK REALM';
@@ -761,7 +773,7 @@ export function createEngine(allCards) {
     vs.equipped_mods.push(cardId);
     p.aps_remaining -= ap;
 
-    const logs = [`${p.name} equips Mod ${c.name} on ${card(vs.card_id).name} (${p.aps_remaining} APs left).`];
+    const logs = [`${p.name} equips Mod ${c.name} on ${card(vs.card_id).name}${free ? ' for free' : ''} (${p.aps_remaining} APs left).`];
 
     // ── On-play ability triggers ─────────────────────────────────────────────
     const r = _triggerModOnPlay(s, pid, vehicleIdx, cardId);
@@ -770,11 +782,16 @@ export function createEngine(allCards) {
     return ok(s, logs);
   }
 
+  /** equipModFree — Guts (222) / Under the Hood (239): equip 1 Mod for free, modability bypassed */
+  function equipModFree(stateIn, pid, cardId, vehicleIdx) {
+    return equipMod(stateIn, pid, cardId, vehicleIdx, true, true);
+  }
+
   /**
    * equipAC — pay AP cost to equip an Accelecharger onto a vehicle.
    * Only one AC per vehicle allowed.
    */
-  function equipAC(stateIn, pid, cardId, vehicleIdx) {
+  function equipAC(stateIn, pid, cardId, vehicleIdx, free = false) {
     if (stateIn.phase !== 'action') return fail(stateIn, 'Not in action phase');
     if (stateIn.active_player !== pid) return fail(stateIn, 'Not your turn');
     const s = clone(stateIn);
@@ -786,7 +803,7 @@ export function createEngine(allCards) {
     if (vs.equipped_ac !== null) return fail(s, 'Vehicle already has an Accelecharger equipped');
 
     const c  = card(cardId);
-    const ap = c.ap_cost;
+    const ap = free ? 0 : c.ap_cost;
     if (p.aps_remaining < ap) return fail(s, `Not enough APs (need ${ap}, have ${p.aps_remaining})`);
 
     // 2-D (id 127) is 0 AP and is played reactively — handled by playReactiveAC
@@ -794,7 +811,7 @@ export function createEngine(allCards) {
     vs.equipped_ac = cardId;
     p.aps_remaining -= ap;
 
-    const logs = [`${p.name} equips Accelecharger ${c.name} on ${card(vs.card_id).name} (${p.aps_remaining} APs left).`];
+    const logs = [`${p.name} equips Accelecharger ${c.name} on ${card(vs.card_id).name}${free ? ' for free' : ''} (${p.aps_remaining} APs left).`];
 
     // ── On-play triggers ─────────────────────────────────────────────────────
     const r = _triggerACOnPlay(s, pid, vehicleIdx, cardId);
@@ -803,12 +820,17 @@ export function createEngine(allCards) {
     return ok(s, logs);
   }
 
+  /** equipACFree — Rev Matching (218): equip 1 Accelecharger for free on any vehicle */
+  function equipACFree(stateIn, pid, cardId, vehicleIdx) {
+    return equipAC(stateIn, pid, cardId, vehicleIdx, true);
+  }
+
   /**
    * playHazard — play a Hazard card against an opponent's Shift or Mod.
    * @param {number} targetVehicleIdx  index in opponent's vehicles[]
    * @param {number} targetCardId      the specific Mod or Shift to target (null for special hazards)
    */
-  function playHazard(stateIn, pid, cardId, targetVehicleIdx, targetCardId = null) {
+  function playHazard(stateIn, pid, cardId, targetVehicleIdx, targetCardId = null, canceledBy = null) {
     if (stateIn.phase !== 'action') return fail(stateIn, 'Not in action phase');
     if (stateIn.active_player !== pid) return fail(stateIn, 'Not your turn');
     const s   = clone(stateIn);
@@ -824,6 +846,14 @@ export function createEngine(allCards) {
     const oppVehicle = s.players[opp].vehicles[targetVehicleIdx];
     if (!oppVehicle && !_isSpecialHazard(cardId)) return fail(s, 'Invalid target vehicle');
 
+    // Reactive cancellation (2-D / Dodging Disaster / Asphalt Anchor) — caller resolves the
+    // defender's reactive card/mod first, then calls playHazard with canceledBy set.
+    if (canceledBy) {
+      p.hand.splice(p.hand.indexOf(cardId), 1);
+      p.junk_pile.push(cardId);
+      p.aps_remaining -= ap;
+      return ok(s, [`${c.name} cancelled by ${canceledBy}!`]);
+    }
     // Check Sprout Road AC protection
     if (oppVehicle?.equipped_ac === 106) {
       p.hand.splice(p.hand.indexOf(cardId), 1);
@@ -1180,6 +1210,9 @@ export function createEngine(allCards) {
     const logs = [];
 
     switch (cardId) {
+      case 211: // Pick a Line — sacrifice 1 Vehicle to advance another, same Realm
+        logs.push(`Pick a Line: sacrifice 1 Vehicle in this Realm to advance another (resolve via pickLine).`);
+        break;
       case 213: // Hot Wire — transfer 1 Mod between your vehicles
         logs.push(`Hot Wire: transfer 1 Mod between your vehicles (resolve via transferMod).`);
         break;
@@ -1407,6 +1440,7 @@ export function createEngine(allCards) {
     const p  = s.players[pid];
     const vs = p.vehicles[vehicleIdx];
     if (!vs) return fail(s, 'Invalid vehicle index');
+    if (vs.equipped_ac !== null) return fail(s, 'Vehicle already has an Accelecharger equipped');
     const idx = p.hand.indexOf(127);
     if (idx < 0) return fail(s, '2-D not in hand');
     p.hand.splice(idx, 1);
@@ -1500,6 +1534,72 @@ export function createEngine(allCards) {
     return ok(s, logs);
   }
 
+  /** applyMagneticBounce — Suspension Enhancers (153): send 1 opposing vehicle back 1 Realm */
+  function applyMagneticBounce(stateIn, pid, targetVehicleIdx) {
+    const s  = clone(stateIn);
+    const vs = s.players[pid]?.vehicles[targetVehicleIdx];
+    if (!vs) return fail(s, 'Invalid vehicle index');
+    const logs = [];
+    _sendVehicleBack(s, pid, targetVehicleIdx, logs);
+    return ok(s, logs);
+  }
+
+  /** revealOpponentHand — Spy Eye (163) / Undistort (113): look at opponent's hand */
+  function revealOpponentHand(stateIn, pid) {
+    const s   = clone(stateIn);
+    const opp = pid === 1 ? 2 : 1;
+    const p   = s.players[opp];
+    const names = p.hand.map(id => card(id)?.name || id).join(', ') || '(empty)';
+    return ok(s, [`${s.players[pid].name} reveals ${p.name}'s hand: ${names}.`]);
+  }
+
+  /** setFogVision — Fog Vision (110): relocate this Realm's Escape Value to a different
+   *  SPP stat, on the equipping player's side only. Same magnitude, different stat.
+   *  Read at advanceEligible time, gated on the AC still being equipped (see there). */
+  function setFogVision(stateIn, pid, vehicleIdx, stat) {
+    const s = clone(stateIn);
+    const valid = ['speed', 'power', 'performance'];
+    if (!valid.includes(stat)) return fail(s, 'Invalid stat');
+    const vs = s.players[pid].vehicles[vehicleIdx];
+    if (!vs) return fail(s, 'Invalid vehicle index');
+    if (vs.equipped_ac !== 110) return fail(s, 'Fog Vision not equipped on this vehicle');
+    vs.tokens['fog_vision'] = stat;
+    return ok(s, [`Fog Vision: Escape Value relocated to ${stat} for ${card(vs.card_id).name}.`]);
+  }
+
+  /** bootleggerRace — Bootlegger Reverse (227), GAMBLE: race an opposing vehicle in the
+   *  same Realm to see who'd be first to escape it. Resolved immediately: whoever has
+   *  the higher SPP on the Realm's Escape stat wins; ties favor the gambler (pid). The
+   *  loser's whole vehicle stack is junked on the spot. */
+  function bootleggerRace(stateIn, pid, myVehicleIdx, oppVehicleIdx) {
+    const s = clone(stateIn);
+    const oppPid = pid === 1 ? 2 : 1;
+    const mine = s.players[pid].vehicles[myVehicleIdx];
+    const opp  = s.players[oppPid].vehicles[oppVehicleIdx];
+    if (!mine || !opp) return fail(s, 'Invalid vehicle index');
+    if (mine.realm_position !== opp.realm_position) return fail(s, 'Both vehicles must be in the same Realm');
+    if (mine.realm_position < 1 || mine.realm_position > 4) return fail(s, 'Vehicles must be in a Realm to race');
+
+    const realm = card(s.realms[mine.realm_position - 1]);
+    const esc   = realm.escape;
+    const stat  = esc.speed > 0 ? 'speed' : esc.power > 0 ? 'power' : 'performance';
+    const mySPP  = calcSPP(s, pid, myVehicleIdx)[stat];
+    const oppSPP = calcSPP(s, oppPid, oppVehicleIdx)[stat];
+
+    const logs = [`Bootlegger Reverse: ${card(mine.card_id).name} (${mySPP} ${stat}) races ${card(opp.card_id).name} (${oppSPP} ${stat}) to the next Realm!`];
+    const iWin = mySPP >= oppSPP; // ties favor the gambler
+    const loserPid = iWin ? oppPid : pid;
+    const loserIdx = iWin ? oppVehicleIdx : myVehicleIdx;
+    const loserVs  = iWin ? opp : mine;
+    const lp = s.players[loserPid];
+    lp.junk_pile.push(loserVs.card_id, ...loserVs.equipped_mods);
+    if (loserVs.equipped_shift) lp.junk_pile.push(loserVs.equipped_shift);
+    if (loserVs.equipped_ac)    lp.junk_pile.push(loserVs.equipped_ac);
+    logs.push(`${card(loserVs.card_id).name} loses the gamble and is junked!`);
+    lp.vehicles.splice(loserIdx, 1);
+    return ok(s, logs);
+  }
+
   // ════════════════════════════════════════════════════════════════════════════
   // STATE ENCODE / DECODE (URL-safe base64 using lz-string)
   // ════════════════════════════════════════════════════════════════════════════
@@ -1570,6 +1670,13 @@ export function createEngine(allCards) {
     equipAC,
     playHazard,
     drawExtra,
+    equipShiftFree,
+    equipModFree,
+    equipACFree,
+    applyMagneticBounce,
+    revealOpponentHand,
+    setFogVision,
+    bootleggerRace,
 
     // Reactive (0-AP responses to opponent plays)
     playReactiveAC,
