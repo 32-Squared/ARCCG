@@ -171,6 +171,13 @@ Choose your move sequence. Total AP cost of chosen moves must not exceed ${apsRe
     });
 
     const data = await response.json();
+    if (!response.ok) {
+      // Anthropic returned an error (e.g. no credits, invalid key, rate limit).
+      // fetch() doesn't throw on 4xx/5xx, so surface it ourselves and let the
+      // outer catch route this through the same heuristic fallback as a
+      // network failure, instead of silently returning an empty move list.
+      throw new Error(`Anthropic API ${response.status}: ${data?.error?.message || 'unknown error'}`);
+    }
     const text = data.content?.[0]?.text || '{}';
 
     // Parse the JSON response
