@@ -116,10 +116,15 @@ function playFullTurn(state, pid) {
   if (state.winner) return { ok: true, state };
   const p = state.players[pid];
   const veh = p.hand.find(id => byId[id].type === 'Vehicle');
+  let playedVehicle = false;
   if (veh && !p.played_vehicle_this_turn && rand() < 0.8) {
-    r = e.playVehicle(state, pid, veh); if (r.ok) state = r.state;
+    r = e.playVehicle(state, pid, veh); if (r.ok) { state = r.state; playedVehicle = true; }
   }
-  r = e.skipPlayVehicle(state, pid); if (!r.ok) return r; state = r.state;
+  // playVehicle now advances phase itself (matches skipPlayVehicle) — only call
+  // skipPlayVehicle when no vehicle was actually played this turn.
+  if (!playedVehicle) {
+    r = e.skipPlayVehicle(state, pid); if (!r.ok) return r; state = r.state;
+  }
   r = e.tuneUp(state);               if (!r.ok) return r; state = r.state;
   // Random action-phase play: try equipping a shift or mod onto own vehicle
   if (state.players[pid].vehicles.length && rand() < 0.7) {

@@ -620,6 +620,11 @@ export function createEngine(allCards) {
     if (r.ok) Object.assign(s, r.state);
     logs.push(...(r.log || []));
 
+    // Playing a vehicle is free and capped at 1/turn (played_vehicle_this_turn
+    // above enforces the cap) — like skipPlayVehicle, it always advances the
+    // turn into tune_up so AP can still be spent this turn.
+    s.phase = 'tune_up';
+
     return ok(s, logs);
   }
 
