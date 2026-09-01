@@ -30,6 +30,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
   --red:#e01a1a;--red-glow:rgba(224,26,26,.3);
   --teal:#00c8c8;--teal-glow:rgba(0,200,200,.25);
   --gold:#f0c040;--gold-glow:rgba(240,192,64,.3);
+  --finish-green:#4ad06a;--finish-green-glow:rgba(74,208,106,.3);
   --bg:#090909;--bg1:#111213;--bg2:#181a1b;--bg3:#222528;
   --border:#2a2e32;--border-hi:#3a4048;
   --text:#e8e0d0;--text-dim:#7a8088;--text-faint:#3a4048;
@@ -102,7 +103,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 .vs-shade{position:absolute;inset:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(6,8,10,.55) 0%,rgba(6,8,10,.35) 40%,rgba(6,8,10,.8) 100%)}
 .vstack>.vstack-name,.vstack>.spp-row,.vstack>.stack-equipped,.vstack>.token-row,.vstack>.terrain-bonus{position:relative;z-index:1}
-.vstack.img-mode .spp-box{background:rgba(0,0,0,.6)}
+.vstack.img-mode .spp-row{background:rgba(0,0,0,.6);border-radius:2px;padding:1px 4px;width:fit-content}
 .realm-header{flex-shrink:0;padding:5px 6px 4px;border-bottom:1px solid var(--border);background:var(--bg2)}
 .realm-num{font-size:9px;color:var(--text-faint);letter-spacing:1px;text-transform:uppercase;font-weight:600}
 .realm-name{font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;
@@ -130,13 +131,11 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
   margin-right:4px;vertical-align:middle;margin-top:-1px}
 .team-mm{background:var(--mm)}.team-tr{background:var(--tr)}
 .team-sz{background:var(--sz)}.team-rd{background:var(--rd)}
-.spp-row{display:flex;gap:3px}
-.spp-box{font-family:var(--spp-font);font-size:14px;min-width:24px;text-align:center;
-  border:1px solid var(--border);border-radius:1px;padding:0 2px;line-height:1.5}
-.spp-box.speed{color:#f07030;border-color:#f0703040}
-.spp-box.power{color:#30c0f0;border-color:#30c0f040}
-.spp-box.perf{color:#60d060;border-color:#60d06040}
-.spp-label{font-size:7px;color:var(--text-faint);text-align:center;margin-top:1px}
+.spp-row{display:flex;gap:2px;font-family:var(--spp-font);font-size:14px;font-weight:700;
+  line-height:1.2;width:fit-content}
+.spp-row .s{color:#f07030}
+.spp-row .p{color:#30c0f0}
+.spp-row .f{color:#60d060}
 .stack-equipped{display:flex;flex-wrap:wrap;gap:2px;margin-top:4px}
 .eq-tag{font-size:8px;padding:1px 4px;border-radius:1px;border:1px solid;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
@@ -153,11 +152,11 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 
 /* ── Finished zone ───────────────────────────────────────────────────── */
 #finish-zone{min-width:60px;max-width:80px;flex-shrink:0;display:flex;flex-direction:column;
-  gap:3px;padding:6px 4px;border:1px solid var(--gold);border-radius:3px;
-  background:rgba(240,192,64,.03)}
-.fin-label{font-size:8px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px}
-.fin-card{font-size:8px;color:var(--gold);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;padding:1px 3px;border:1px solid rgba(240,192,64,.2);border-radius:1px}
+  gap:3px;padding:6px 4px;border:1px solid var(--finish-green);border-radius:3px;
+  background:rgba(74,208,106,.03)}
+.fin-label{font-size:8px;color:var(--finish-green);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px}
+.fin-card{font-size:8px;color:var(--finish-green);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;padding:1px 3px;border:1px solid rgba(74,208,106,.2);border-radius:1px}
 
 /* ── Hand Tray ───────────────────────────────────────────────────────── */
 #hand-area{height:var(--hand-h);min-height:var(--hand-h);background:var(--bg1);
@@ -234,7 +233,8 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 #menu-container{width:min(440px,96vw);padding:20px 0;display:flex;flex-direction:column;align-items:center;gap:0}
 #menu-logo{max-width:280px;width:70%;object-fit:contain;margin-bottom:16px;
   filter:drop-shadow(0 0 20px var(--orange-glow))}
-#menu-tagline{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);margin-bottom:20px}
+#menu-tagline{font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase;
+  color:var(--text);margin-bottom:14px}
 #menu-team-heading{font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase;
   color:var(--text);margin-bottom:14px}
 #team-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-bottom:20px}
@@ -256,6 +256,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 .menu-opt-btn.primary{border-color:var(--orange);color:var(--orange)}
 .menu-opt-btn.primary:active{background:var(--orange);color:#fff}
 .menu-opt-btn#btn-return-game{border-color:var(--teal);color:var(--teal)}
+.menu-opt-btn#btn-initialise{border-color:var(--red);color:var(--red)}
 #menu-disclaimer{font-size:9px;color:var(--text-faint);letter-spacing:.5px;text-align:center;padding:0 20px}
 
 /* ── Rulebook Overlay ────────────────────────────────────────────────── */
@@ -395,11 +396,16 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 #action-hint.show{opacity:1}
 #finish-overlay{position:fixed;inset:0;z-index:400;display:flex;align-items:center;
   justify-content:center;background:rgba(0,0,0,.92);backdrop-filter:blur(4px);
-  flex-direction:column;gap:16px}
+  flex-direction:column;gap:10px;padding:16px;text-align:center}
 #finish-overlay.hidden{display:none!important}
-.finish-winner{font-size:48px;font-weight:900;color:var(--gold);letter-spacing:2px;
+#finish-logo{max-width:220px;width:60%;object-fit:contain;margin-bottom:6px;
+  filter:drop-shadow(0 0 20px var(--orange-glow))}
+.finish-congrats{font-size:24px;font-weight:900;letter-spacing:1px;text-transform:uppercase;
+  color:var(--orange);text-shadow:0 0 20px var(--orange-glow)}
+.finish-winner{font-size:38px;font-weight:900;color:var(--gold);letter-spacing:2px;
   text-transform:uppercase;text-shadow:0 0 30px var(--gold-glow)}
-.finish-sub{font-size:18px;color:var(--text-dim);letter-spacing:1px}
+.finish-sub{font-size:15px;color:var(--text-dim);letter-spacing:.5px;max-width:320px;margin-top:4px}
+.finish-actions{display:flex;gap:10px;margin-top:12px}
 
 /* ── Card Detail Tooltip ─────────────────────────────────────────────── */
 #card-detail{position:fixed;z-index:200;background:var(--bg1);border:1px solid var(--border-hi);
@@ -507,7 +513,8 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
     'showCardDetail','showPrompt',
     'saveCurrentDeck','loadCustomDeck','deleteCustomDeck','loadStarterDeck',
     'quickRace','setupDeckSource','toggleRealmPick',
-    'p2SetTeam','p2DeckSource','p2SetupConfirm','openP2Setup','p2BeginSetup','toggleImgMode'
+    'p2SetTeam','p2DeckSource','p2SetupConfirm','openP2Setup','p2BeginSetup','toggleImgMode',
+    'downloadRaceLog','initialiseGame'
   ];
   stubs.forEach(function(fn) {
     if (!window[fn]) window[fn] = _loading;
@@ -575,7 +582,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
   <div id="menu-container">
     <img id="menu-logo" src="/imgs/arccg.webp" alt="AcceleRacers CCG"
       onerror="this.outerHTML='<div style=\'font-size:28px;font-weight:900;color:var(--orange);letter-spacing:-1px;text-transform:uppercase;margin-bottom:16px\'>AcceleRacers<br><span style=\'color:var(--text-dim);font-size:14px\'>CCG</span></div>'">
-    <div id="menu-tagline">Collectible Card Game</div>
+    <div id="menu-tagline">Choose Your Opponent</div>
     <!-- Game mode selection -->
     <div id="menu-mode-row">
       <div class="mode-tile selected" id="mode-pvp" onclick="setGameMode('pvp')">
@@ -622,6 +629,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
       <button class="menu-opt-btn" onclick="openCardList()">Card List</button>
       <button class="menu-opt-btn" onclick="openRulebook()">Rulebook</button>
       <button class="menu-opt-btn" id="btn-return-game" onclick="returnToGame()" style="display:none">Return to Game</button>
+      <button class="menu-opt-btn" id="btn-initialise" onclick="initialiseGame()" style="display:none">Initialise</button>
     </div>
     <div id="menu-loading-badge" style="
       font-size:9px;color:var(--teal);letter-spacing:1px;text-transform:uppercase;
@@ -740,9 +748,15 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 <div id="toast"></div>
 
 <div id="finish-overlay" class="hidden">
+  <img id="finish-logo" src="/imgs/arccg.webp" alt="AcceleRacers CCG"
+    onerror="this.outerHTML='<div style=\'font-size:22px;font-weight:900;color:var(--orange);letter-spacing:-1px;text-transform:uppercase;margin-bottom:6px\'>AcceleRacers</div>'">
+  <div class="finish-congrats">Congratulations!</div>
   <div class="finish-winner" id="finish-winner"></div>
-  <div class="finish-sub">wins the race!</div>
-  <button class="tb-btn primary" onclick="openMenu()" style="margin-top:8px;font-size:14px;padding:8px 20px">Main Menu</button>
+  <div class="finish-sub">You escaped the Realms and reached the Finish!</div>
+  <div class="finish-actions">
+    <button class="tb-btn" onclick="downloadRaceLog()">Download Race Log</button>
+    <button class="tb-btn primary" onclick="openMenu()">Main Menu</button>
+  </div>
 </div>
 
 <!-- Setup modal -->
@@ -1104,10 +1118,27 @@ window.returnToGame = function() {
   if (G) renderAll();
 };
 
+// Abandons the current race and clears its save, so a fresh Quick Race / Custom
+// Race can start clean without stale state resurrecting on next load.
+window.initialiseGame = function() {
+  if (!G) return;
+  showPrompt('Initialise', 'Abandon the current race and clear its save? This cannot be undone.',
+    [{ label:'Initialise', confirmed:true }, { label:'Cancel', confirmed:false }],
+    opt => {
+      if (!opt?.confirmed) return;
+      try { localStorage.removeItem(saveSlotKey()); } catch(e) {}
+      if (G.gid) { try { localStorage.removeItem(logKey(G.gid)); } catch(e) {} }
+      window.G = null;
+      if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+      updateMenuState();
+      toast('Race cleared \u2014 ready for a new one.');
+    });
+};
+
 function updateMenuState() {
   const inGame = G !== null;
-  const retBtn = document.getElementById('btn-return-game');
-  retBtn.style.display = inGame ? '' : 'none';
+  document.getElementById('btn-return-game').style.display = inGame ? '' : 'none';
+  document.getElementById('btn-initialise').style.display  = inGame ? '' : 'none';
 
   const lockedMsg = document.getElementById('team-locked-msg');
   lockedMsg.textContent = inGame ? 'Start a New Game to Change Decks' : '';
@@ -1437,7 +1468,9 @@ function renderSetupStep() {
       <p style="font-size:11px;color:var(--text-dim);margin-top:8px">
         ${acc ? 'Next: choose your deck, then all 4 Realms.'
               : 'Next: choose your deck, then Realms 1 & 2. Your opponent names themselves and chooses their deck and Realms 3 & 4 when they join.'}</p>`;
-    foot.innerHTML = `<button class="tb-btn primary" onclick="setupNext()">Choose Deck \u2192</button>`;
+    foot.innerHTML = `
+      <button class="tb-btn" onclick="closeModal('setup-modal')">Cancel</button>
+      <button class="tb-btn primary" onclick="setupNext()">Choose Deck \u2192</button>`;
   }
   else if (step === 1) {
     const teamName = selectedTeam?.teamName || null;
@@ -1547,8 +1580,7 @@ function renderP2Setup() {
 
   if (p2setup.stage === 'handoff') {
     document.getElementById('p2setup-title').textContent = `${p1} has set up the race`;
-    body.innerHTML = `<p style="font-size:12px;color:var(--text-dim)">
-      Player 2 now chooses their name, deck, and Realms 3 & 4 \u2014 without seeing the board.
+    body.innerHTML = `<p style="font-size:16px;color:var(--text)">
       Pass this device to Player 2, or share the link to their device.</p>
       <p style="font-size:11px;color:var(--text-faint);margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
       \u2139 The link IS the game \u2014 the full game state travels inside the URL. No server, no accounts;
@@ -2203,7 +2235,7 @@ function renderRealmTrack() {
   });
   // Finished zone
   const fz=document.createElement('div'); fz.id='finish-zone';
-  fz.innerHTML='<div class="fin-label">\u2713 Done</div>';
+  fz.innerHTML='<div class="fin-label">\u2713 Finish</div>';
   [MY_PID,OPP_PID].forEach(pid=>{
     G.players[pid].vehicles.filter(v=>v.realm_position===5).forEach(vs=>{
       const vc=CARD_MAP[vs.card_id]; const d=document.createElement('div');
@@ -2248,11 +2280,7 @@ function buildVStackEl(pid,vi,vs) {
   }
   div.innerHTML=`${imgH}${tb}
     <div class="vstack-name"><span class="vstack-team ${tc}"></span>${(vc?.name||'?').replace('\u2122','').replace('.v2','\u00B7v2')}${oppBadge}</div>
-    <div class="spp-row">
-      <div><div class="spp-box speed">${spp.speed}</div><div class="spp-label">SPD</div></div>
-      <div><div class="spp-box power">${spp.power}</div><div class="spp-label">PWR</div></div>
-      <div><div class="spp-box perf">${spp.performance}</div><div class="spp-label">PRF</div></div>
-    </div>
+    <div class="spp-row"><span class="s">${spp.speed}</span><span class="p">${spp.power}</span><span class="f">${spp.performance}</span></div>
     ${(mods||shft||acel)?`<div class="stack-equipped">${mods}${shft}${acel}</div>`:''}
     ${tkH?`<div class="token-row">${tkH}</div>`:''}`;
   return div;
@@ -2474,13 +2502,39 @@ window.toast = function(msg) {
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
 };
 
+let finishTimer = null;
 function checkFinish() {
   const el = document.getElementById('finish-overlay');
-  if (!G?.winner) { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  document.getElementById('finish-winner').textContent=G.players[G.winner].name;
+  if (!G?.winner) {
+    el.classList.add('hidden');
+    window._finishShown = false;
+    if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+    return;
+  }
+  if (window._finishShown) return; // already showing, or the reveal is already scheduled
+  window._finishShown = true;
+  const winnerName = G.players[G.winner].name;
+  finishTimer = setTimeout(() => {
+    finishTimer = null;
+    document.getElementById('finish-winner').textContent = winnerName;
+    el.classList.remove('hidden');
+  }, 1200); // brief pause so the final Vehicle's advance into the Finish is visible first
 }
 window.showFinish = checkFinish;
+
+window.downloadRaceLog = function() {
+  if (!G?.log?.length) { toast('No log to download'); return; }
+  const text = G.log.join('\n');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `AcceleRacers_RaceLog_${G.gid || Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 document.addEventListener('keydown', e => {
   if (e.key==='Escape') { window.selected=null; clearHint(); if(G) renderAll(); }
