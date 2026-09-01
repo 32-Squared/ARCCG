@@ -858,7 +858,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 </div>
 
 <!-- Prompt modal -->
-<div class="modal-overlay hidden" id="prompt-modal">
+<div class="modal-overlay hidden" id="prompt-modal" style="z-index:900">
   <div class="modal-box" style="max-width:400px">
     <div class="modal-head"><div class="modal-title" id="prompt-title">Choose</div></div>
     <div class="modal-body">
@@ -873,7 +873,7 @@ body{width:100%;height:100%;overflow:hidden;background:#090909;color:#e8e0d0;
 
 <!-- Text-input modal — avoids window.prompt(), which browsers commonly block
      (returns null with no dialog at all) once the page is running fullscreen. -->
-<div class="modal-overlay hidden" id="textinput-modal">
+<div class="modal-overlay hidden" id="textinput-modal" style="z-index:900">
   <div class="modal-box" style="max-width:360px">
     <div class="modal-head"><div class="modal-title" id="textinput-title">Enter a name</div></div>
     <div class="modal-body">
@@ -2336,6 +2336,13 @@ function renderHand() {
     skip.onclick=()=>{const r=engine.skipPlayVehicle(G,MY_PID);if(r.ok){G=r.state;appendLogs(r.log);doTuneUp();}else toast(r.error)};
     cont.appendChild(skip);
   }
+  if(canAct&&aps>=1){
+    const draw=document.createElement('button');
+    draw.className='tb-btn';draw.textContent='Draw (1 AP)';
+    draw.style.cssText='flex-shrink:0;height:40px;align-self:center;margin-left:4px';
+    draw.onclick=()=>{const r=engine.drawExtra(G,MY_PID);if(r.ok){G=r.state;appendLogs(r.log);renderAll();}else toast(r.error)};
+    cont.appendChild(draw);
+  }
 }
 
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -2644,12 +2651,19 @@ function enumerateLegalMoves(state, accPid) {
   if (state.phase !== 'action') return moves;
   const aps = p.aps_remaining;
 
+  // Equip-target order: Realm 1 (start) forward to Realm 4, not array/play order —
+  // so equip moves (and the heuristic's greedy pick among them) favor the earliest
+  // vehicle first rather than whichever happens to be furthest along.
+  const vehiclesByRealmAsc = p.vehicles
+    .map((vs, vi) => ({ vs, vi }))
+    .sort((a, b) => a.vs.realm_position - b.vs.realm_position);
+
   // Equip Shifts
   p.hand.forEach(cardId => {
     const c = CARD_MAP[cardId];
     if (c?.type !== 'Shift' || (c.ap_cost||0) > aps) return;
     if (p.no_shifts_next_turn) return;
-    p.vehicles.forEach((vs, vi) => {
+    vehiclesByRealmAsc.forEach(({vs, vi}) => {
       if (vs.realm_position < 1 || vs.realm_position > 4) return;
       if (state.restrictions.no_shifts_realm_idx === vs.realm_position) return;
       const vc = CARD_MAP[vs.card_id];
@@ -2664,7 +2678,7 @@ function enumerateLegalMoves(state, accPid) {
     const c = CARD_MAP[cardId];
     if (c?.type !== 'Mod' || (c.ap_cost||0) > aps) return;
     if (p.no_mods_next_turn) return;
-    p.vehicles.forEach((vs, vi) => {
+    vehiclesByRealmAsc.forEach(({vs, vi}) => {
       if (vs.realm_position < 1 || vs.realm_position > 4) return;
       if (!engine.canEquipMod(cardId, vs)) return;
       const vc = CARD_MAP[vs.card_id];
@@ -2679,7 +2693,7 @@ function enumerateLegalMoves(state, accPid) {
   p.hand.forEach(cardId => {
     const c = CARD_MAP[cardId];
     if (c?.type !== 'Accelecharger' || (c.ap_cost||0) > aps) return;
-    p.vehicles.forEach((vs, vi) => {
+    vehiclesByRealmAsc.forEach(({vs, vi}) => {
       if (vs.realm_position < 1 || vs.realm_position > 4) return;
       if (vs.equipped_ac !== null) return;
       const vc = CARD_MAP[vs.card_id];

@@ -106,12 +106,13 @@ exports.handler = async (event) => {
   const { boardSummary, legalMoves, apsRemaining, difficulty, vehiclePhase } = payload;
 
   // ── Easy difficulty: heuristic only, no API call ───────────────────────
+  // Budget: AP - 1 — leaves 1 AP deliberately unspent every turn.
   if (difficulty === 'easy') {
     return {
       statusCode: 200,
       headers: corsHeaders(),
       body: JSON.stringify({
-        moves: heuristicMoves(legalMoves, apsRemaining, 0.5),
+        moves: heuristicMoves(legalMoves, apsRemaining, -1),
         flavour: easyFlavour(),
       }),
     };
@@ -120,12 +121,12 @@ exports.handler = async (event) => {
   // ── Hard difficulty: Claude Haiku ──────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // Graceful fallback if key not configured yet
+    // Graceful fallback if key not configured yet — full AP budget, no offset.
     return {
       statusCode: 200,
       headers: corsHeaders(),
       body: JSON.stringify({
-        moves: heuristicMoves(legalMoves, apsRemaining, 1.0),
+        moves: heuristicMoves(legalMoves, apsRemaining, 0),
         flavour: 'The Accelerons calculate in silence...',
       }),
     };
@@ -211,13 +212,16 @@ Choose your move sequence. Total AP cost of chosen moves must not exceed ${apsRe
       body: JSON.stringify({ moves: validMoves, flavour }),
     };
   } catch (err) {
-    // API failure — fall back to heuristic silently
+    // API failure — fall back to heuristic silently. Budget: AP + 1 — the local
+    // budget check can never actually bind past real AP (each move is re-validated
+    // against true apsRemaining when executed), so this just guarantees the
+    // fallback never leaves AP on the table due to its own rounding.
     console.error('Acceleron API error:', err.message);
     return {
       statusCode: 200,
       headers: corsHeaders(),
       body: JSON.stringify({
-        moves: heuristicMoves(legalMoves, apsRemaining, 1.0),
+        moves: heuristicMoves(legalMoves, apsRemaining, 1),
         flavour: 'Signal lost. Reverting to base protocols.',
       }),
     };
@@ -226,19 +230,19 @@ Choose your move sequence. Total AP cost of chosen moves must not exceed ${apsRe
 
 // ── Heuristic fallback ─────────────────────────────────────────────────────
 // Prioritises: advance > equip mod/shift > hazard > draw extra
-function heuristicMoves(legalMoves, apsRemaining, aggression = 1.0) {
-  const priority = { endTurn: -1, drawExtra: 0, equipAC: 1,
-                     equipShift: 2, equipMod: 3, playHazard: 4, playVehicle: 5 };
+// ── Heuristic fallback ─────────────────────────────────────────────────────
+// Prioritises: equip Mod > equip Shift > play Hazard > equip Accelecharger > draw
+function heuristicMoves(legalMoves, apsRemaining, budgetOffset = 0) {
+  const priority = { equipMod: 5, equipShift: 4, playHazard: 3, equipAC: 2, drawExtra: 1 };
   const sorted = [...legalMoves].sort((a, b) =>
     (priority[b.type] || 0) - (priority[a.type] || 0)
   );
   const chosen = [];
   let apSpent = 0;
-  const budget = Math.ceil(apsRemaining * aggression);
+  const budget = Math.max(0, apsRemaining + budgetOffset);
   for (const move of sorted) {
     const cost = move.apCost || 0;
     if (apSpent + cost > budget) continue;
-    if (move.type === 'endTurn') continue;
     chosen.push(move);
     apSpent += cost;
   }
